@@ -1,7 +1,8 @@
 // js/ui-render.js
 import { state } from './state.js';
 import { WEEKDAYS } from './config.js';
-import { formatHoursMinutes, formatDateToYYYYMMDD, normalizeDate } from './utils.js';
+// GEÄNDERT: Importiere parseDateString
+import { formatHoursMinutes, formatDateToYYYYMMDD, normalizeDate, parseDateString } from './utils.js';
 import { getTaskDuration, sortTasksByPriority, getDailyAvailableHours } from './scheduler.js';
 import { attachTaskInteractions } from './ui-actions.js';
 
@@ -37,13 +38,13 @@ function renderTasks() {
     [elements.todayTasksList, elements.tomorrowTasksList, elements.futureTasksList].forEach(list => list.innerHTML = '');
     [elements.noTodayTasks, elements.noTomorrowTasks, elements.noFutureTasks].forEach(msg => msg.style.display = 'block');
 
-    const today = normalizeDate(new Date());
-    const tomorrow = normalizeDate(new Date(today));
+    const today = normalizeDate();
+    const tomorrow = normalizeDate();
     tomorrow.setDate(tomorrow.getDate() + 1);
-    const overmorrow = normalizeDate(new Date(today));
+    const overmorrow = normalizeDate();
     overmorrow.setDate(overmorrow.getDate() + 2);
 
-    // Create a copy for sorting to avoid mutating state directly during render
+    // Create a copy for sorting
     const activeTasks = [...state.tasks.filter(task => !task.completed)];
 
     // Sort tasks for display if autoPriority is enabled
@@ -51,11 +52,16 @@ function renderTasks() {
         activeTasks.sort(sortTasksByPriority);
     }
 
-    const todayTasks = [], tomorrowTasks = [], futureTasks = [];
+    const todayTasks = [], tomorrowTasks = [], futureTasks = [], unscheduledTasks = [];
 
     activeTasks.forEach(task => {
-        if (!task.plannedDate) return;
-        const taskPlannedDate = normalizeDate(new Date(task.plannedDate));
+        // GEÄNDERT: Verwende parseDateString für Robustheit
+        const taskPlannedDate = parseDateString(task.plannedDate);
+
+        if (!taskPlannedDate) {
+            unscheduledTasks.push(task);
+            return;
+        }
 
         if (taskPlannedDate.getTime() === today.getTime()) {
             todayTasks.push(task);
@@ -75,9 +81,14 @@ function renderTasks() {
 
     renderList(todayTasks, elements.todayTasksList, elements.noTodayTasks);
     renderList(tomorrowTasks, elements.tomorrowTasksList, elements.noTomorrowTasks);
-    // Sort future tasks by date for clarity
-    futureTasks.sort((a, b) => new Date(a.plannedDate).getTime() - new Date(b.plannedDate).getTime());
-    renderList(futureTasks, elements.futureTasksList, elements.noFutureTasks);
+
+    // Sort future tasks by date, then combine with unscheduled tasks
+    futureTasks.sort((a, b) => {
+        const dateA = parseDateString(a.plannedDate);
+        const dateB = parseDateString(b.plannedDate);
+        return (dateA && dateB) ? dateA.getTime() - dateB.getTime() : 0;
+    });
+    renderList([...futureTasks, ...unscheduledTasks], elements.futureTasksList, elements.noFutureTasks);
 
     attachTaskInteractions();
 }
@@ -92,7 +103,8 @@ function createTaskElement(task) {
     taskElement.draggable = isDraggable;
 
     const duration = getTaskDuration(task);
-    const durationDisplay = duration > 0 ? `<span class="ml-4 text-sm text-gray-500">(${duration.toFixed(1)}h)</span>` : '';
+    // Display duration with 2 decimal places for precision
+    const durationDisplay = duration > 0 ? `<span class="ml-4 text-sm text-gray-500">(${duration.toFixed(2)}h)</span>` : '';
 
     // Benefit Display
     let benefitDisplay = '';
@@ -109,15 +121,17 @@ function createTaskElement(task) {
 
     // Date Display (for future tasks)
     let plannedDateDisplay = '';
-    const today = normalizeDate(new Date());
-    const tomorrow = normalizeDate(new Date(today));
+    const today = normalizeDate();
+    const tomorrow = normalizeDate();
     tomorrow.setDate(tomorrow.getDate() + 1);
-    const taskPlannedDate = task.plannedDate ? normalizeDate(new Date(task.plannedDate)) : null;
+
+    const taskPlannedDate = parseDateString(task.plannedDate);
 
     // Display date if it's not today or tomorrow
     if (taskPlannedDate && taskPlannedDate.getTime() > tomorrow.getTime()) {
         plannedDateDisplay = `<span class="ml-2 text-sm text-gray-400">(${formatDateToYYYYMMDD(taskPlannedDate)})</span>`;
     }
+
 
     taskElement.innerHTML = `
         <div class="flex items-center flex-grow">
@@ -135,21 +149,26 @@ function createTaskElement(task) {
 }
 
 function updateAvailableTimeDisplays() {
-    const today = normalizeDate(new Date());
-    const tomorrow = normalizeDate(new Date(today));
+    const today = normalizeDate();
+    const tomorrow = normalizeDate();
     tomorrow.setDate(tomorrow.getDate() + 1);
 
     let consumedToday = 0, consumedTomorrow = 0, consumedFuture = 0;
 
     // Calculate consumption based on the current schedule
     state.tasks.filter(t => !t.completed).forEach(task => {
-        if (!task.plannedDate) return;
-        const taskDate = normalizeDate(new Date(task.plannedDate));
+        const taskDate = parseDateString(task.plannedDate);
+        if (!taskDate) return;
+
         const duration = getTaskDuration(task);
-        const daysFromToday = (taskDate.getTime() - today.getTime()) / (1000 * 3600 * 24);
+
+        // Calculate days difference reliably
+        const timeDiff = taskDate.getTime() - today.getTime();
+        // Use Math.round to handle potential daylight savings shifts robustly
+        const daysFromToday = Math.round(timeDiff / (1000 * 3600 * 24));
 
         if (daysFromToday === 0) {
-            consumedToday += duration;
+             consumedToday += duration;
         } else if (daysFromToday === 1) {
             consumedTomorrow += duration;
         } else if (daysFromToday >= 2 && daysFromToday < 9) { // Next 7 days starting from overmorrow
@@ -162,7 +181,7 @@ function updateAvailableTimeDisplays() {
 
     let availableFuture = 0;
     for (let i = 2; i < 9; i++) {
-        const futureDate = new Date(today);
+        const futureDate = normalizeDate();
         futureDate.setDate(today.getDate() + i);
         availableFuture += getDailyAvailableHours(futureDate);
     }
@@ -175,19 +194,24 @@ function updateAvailableTimeDisplays() {
 
 /**
  * Renders the settings modal content.
+ * GEÄNDERT: Nimmt settingsToRender als Argument, um temporären Zustand anzuzeigen.
+ * @param {object} settingsToRender - The settings object to use (temporary modal state).
  */
-export function renderSettingsModal() {
-    elements.calcPriorityCheckbox.checked = state.settings.calcPriority;
-    elements.autoPriorityCheckbox.checked = state.settings.autoPriority;
-    renderDailyTimeslots();
+export function renderSettingsModal(settingsToRender) {
+     // Ensure settingsToRender is valid
+     if (!settingsToRender || !settingsToRender.dailyTimeSlots) return;
+
+    elements.calcPriorityCheckbox.checked = settingsToRender.calcPriority;
+    elements.autoPriorityCheckbox.checked = settingsToRender.autoPriority;
+    renderDailyTimeslots(settingsToRender);
 }
 
-function renderDailyTimeslots() {
+function renderDailyTimeslots(settingsToRender) {
     const container = elements.dailyTimeslotsContainer;
     container.innerHTML = '';
 
     WEEKDAYS.forEach(dayName => {
-        const dayTimeslots = state.settings.dailyTimeSlots[dayName] || [];
+        const dayTimeslots = settingsToRender.dailyTimeSlots[dayName] || [];
 
         const daySection = document.createElement('div');
         daySection.className = 'day-section';
@@ -220,6 +244,7 @@ function renderDailyTimeslots() {
 
 function createTimeslotElement(dayName, slotId, startTime, endTime) {
     const timeslotDiv = document.createElement('div');
+    // Wichtig: Klasse timeslot-row hinzugefügt für ui-actions.js
     timeslotDiv.className = 'flex items-center space-x-2 timeslot-row';
     timeslotDiv.dataset.timeslotId = slotId;
 
