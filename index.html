@@ -7,18 +7,14 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <style>
-        /* Custom styles */
+        /* (CSS Styles bleiben unverändert zur vorherigen Version) */
         body {
             font-family: 'Inter', sans-serif;
-            /* Zentriert Inhalt für Login/Loading screens */
             @apply bg-gray-100 flex justify-center items-center min-h-screen p-6;
         }
-        /* NEU: Klasse, um das Layout für die App-Ansicht anzupassen (oben ausgerichtet) */
         body.app-layout {
              @apply items-start;
         }
-
-        /* (Restliches CSS bleibt identisch zur vorherigen Version) */
         .task-item {
             @apply flex items-center justify-between bg-white p-4 rounded-lg shadow-sm mb-3;
         }
@@ -228,8 +224,7 @@
 
             <input type="hidden" id="edit-task-id">
             <input type="hidden" id="edit-task-type">
-
-            <div class="mb-6">
+            <input type="hidden" id="edit-task-owner-id"> <div class="mb-6">
                 <label for="edit-description" class="block text-gray-700 text-sm font-bold mb-2">Beschreibung:</label>
                 <input type="text" id="edit-description" class="w-full p-3 border border-gray-300 rounded-lg">
             </div>
@@ -264,6 +259,18 @@
                 <div>
                     <label for="edit-fixed-duration" class="block text-gray-700 text-sm font-bold mb-2">Dauer (Stunden):</label>
                     <input type="number" id="edit-fixed-duration" min="0.1" step="0.1" class="w-full p-3 border border-gray-300 rounded-lg">
+                </div>
+            </div>
+
+            <div class="mb-8 p-4 bg-gray-100 rounded-lg shadow-inner">
+                <h3 class="text-gray-700 text-sm font-bold mb-3">Zugewiesen an (Team):</h3>
+                <div id="assigned-users-list" class="mb-4 space-y-2">
+                    </div>
+                
+                <div class="relative">
+                    <input type="text" id="user-search-input" placeholder="E-Mail suchen zum Hinzufügen..." class="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
+                    <div id="user-search-results" class="absolute z-10 w-full bg-white border border-gray-300 rounded-lg mt-1 shadow-lg max-h-40 overflow-y-auto hidden">
+                        </div>
                 </div>
             </div>
 
