@@ -7,8 +7,14 @@ import { WEEKDAYS } from './config.js';
 export function formatHoursMinutes(totalHours) {
     // Ensure non-negative time
     const safeHours = Math.max(0, totalHours);
-    const hours = Math.floor(safeHours);
-    const minutes = Math.round((safeHours - hours) * 60);
+    let hours = Math.floor(safeHours);
+    let minutes = Math.round((safeHours - hours) * 60);
+
+    // Handle rounding up to 60 minutes
+    if (minutes === 60) {
+        hours += 1;
+        minutes = 0;
+    }
     return `${hours}h ${minutes}min`;
 }
 
@@ -16,28 +22,12 @@ export function formatHoursMinutes(totalHours) {
  * Converts Date object to a YYYY-MM-DD string (local time).
  */
 export function formatDateToYYYYMMDD(date) {
+    if (!date) return null;
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const day = String(date.getDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
 }
-
-/**
- * **NEU:** Wandelt einen YYYY-MM-DD String in ein Date Objekt um.
- * Dies behebt den Fehler aus der Konsole.
- */
-export function parseDateString(dateStr) {
-    if (!dateStr || typeof dateStr !== 'string') return null;
-    // Das Hinzufügen von 'T00:00:00' sorgt dafür, dass das Datum in der lokalen Zeitzone
-    // korrekt und ohne "off-by-one-day" Fehler interpretiert wird.
-    const date = new Date(`${dateStr}T00:00:00`);
-    // Prüfen, ob das erstellte Datum gültig ist
-    if (isNaN(date.getTime())) {
-        return null;
-    }
-    return date;
-}
-
 
 /**
  * Gets the weekday name (e.g., "Montag").
@@ -48,10 +38,26 @@ export function getDayOfWeek(date) {
 }
 
 /**
- * Normalizes a date object to the start of the day (midnight local time).
+ * Normalizes a date object (or current date if null/undefined) to the start of the day (midnight local time).
  */
-export function normalizeDate(date) {
+export function normalizeDate(date = new Date()) {
     const normalized = new Date(date);
     normalized.setHours(0, 0, 0, 0);
     return normalized;
+}
+
+/**
+ * Parses a YYYY-MM-DD string and returns a Date object normalized to the start of that day (local time).
+ */
+export function parseDateString(dateString) {
+    if (!dateString) return null;
+    // Split the string and use the Date(year, monthIndex, day) constructor for reliable local time interpretation
+    const parts = dateString.split('-');
+    if (parts.length === 3) {
+        const year = parseInt(parts[0], 10);
+        const monthIndex = parseInt(parts[1], 10) - 1; // Month is 0-indexed
+        const day = parseInt(parts[2], 10);
+        return new Date(year, monthIndex, day, 0, 0, 0, 0);
+    }
+    return null;
 }
