@@ -3,7 +3,8 @@ import { state } from './state.js';
 import { loadTasks, loadSettings, saveSettings } from './storage.js';
 import { recalculateSchedule } from './scheduler.js';
 import { renderApp } from './ui-render.js';
-import { openModal, closeModal, setActiveTaskType, clearInputs, getSettingsFromModal } from './ui-actions.js';
+// GEÄNDERT: Importiere updateAndGetSettingsFromModal statt getSettingsFromModal
+import { openModal, closeModal, setActiveTaskType, clearInputs, updateAndGetSettingsFromModal } from './ui-actions.js';
 
 // --- Initialization ---
 function initialize() {
@@ -102,16 +103,18 @@ function handleAddTask() {
     }
 }
 
+// GEÄNDERT: Nutzt den temporären Modal-Zustand
 function handleSaveSettings() {
-    // Read the settings from the modal UI (which might have been modified)
-    const newSettings = getSettingsFromModal();
+    // Lese die Einstellungen aus dem Modal UI (dies aktualisiert auch den temporären Modal-Zustand)
+    const newSettings = updateAndGetSettingsFromModal();
 
-    // Update global state
+    // Aktualisiere den globalen Zustand mit den bestätigten Einstellungen
+    // Hinweis: saveSettings() führt intern eine Validierung durch.
     Object.assign(state.settings, newSettings);
     saveSettings();
     closeModal();
 
-    // Re-schedule tasks based on new settings (capacity/priority rules)
+    // Neu planen basierend auf den neuen Einstellungen
     recalculateSchedule();
     renderApp();
 }
