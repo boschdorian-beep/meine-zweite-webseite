@@ -1,8 +1,8 @@
 // js/config.js
 export const WEEKDAYS = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"];
-// Verwende Versionsnummern für Storage Keys, falls sich die Datenstruktur ändert
-export const TASKS_STORAGE_KEY = 'my_todo_list_tasks_v6';
-export const SETTINGS_STORAGE_KEY = 'my_todo_list_settings_v6';
+// Version erhöht wegen neuer Features und Datenstruktur (isManuallyScheduled)
+export const TASKS_STORAGE_KEY = 'my_todo_list_tasks_v10';
+export const SETTINGS_STORAGE_KEY = 'my_todo_list_settings_v10';
 
 export function getDefaultSettings() {
     const defaultDailyTimeSlots = {};
@@ -12,6 +12,7 @@ export function getDefaultSettings() {
     });
     return {
         calcPriority: true,
+        // autoPriority true bedeutet "Manuell Sortieren" ist AUS
         autoPriority: true,
         dailyTimeSlots: defaultDailyTimeSlots
     };
