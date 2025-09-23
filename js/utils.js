@@ -23,6 +23,23 @@ export function formatDateToYYYYMMDD(date) {
 }
 
 /**
+ * **NEU:** Wandelt einen YYYY-MM-DD String in ein Date Objekt um.
+ * Dies behebt den Fehler aus der Konsole.
+ */
+export function parseDateString(dateStr) {
+    if (!dateStr || typeof dateStr !== 'string') return null;
+    // Das Hinzufügen von 'T00:00:00' sorgt dafür, dass das Datum in der lokalen Zeitzone
+    // korrekt und ohne "off-by-one-day" Fehler interpretiert wird.
+    const date = new Date(`${dateStr}T00:00:00`);
+    // Prüfen, ob das erstellte Datum gültig ist
+    if (isNaN(date.getTime())) {
+        return null;
+    }
+    return date;
+}
+
+
+/**
  * Gets the weekday name (e.g., "Montag").
  */
 export function getDayOfWeek(date) {
