@@ -4,8 +4,9 @@
  * Centralized state management.
  */
 export const state = {
-    user: null, // NEU: Hält das Firebase User Objekt
-    tasks: [],
+    user: null,   // Firebase User Objekt
+    tasks: [],    // NEU: Original task definitions (as stored in Firestore)
+    schedule: [], // NEU: Calculated schedule instances (ephemeral, not stored)
     settings: {},
     activeTaskType: 'Vorteil & Dauer',
     draggedItem: null
