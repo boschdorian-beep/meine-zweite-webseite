@@ -1,20 +1,22 @@
 // js/ui-render.js
 import { state } from './state.js';
 import { WEEKDAYS } from './config.js';
-// GEÄNDERT: Importiere parseDateString
 import { formatHoursMinutes, formatDateToYYYYMMDD, normalizeDate, parseDateString } from './utils.js';
-import { getTaskDuration, sortTasksByPriority, getDailyAvailableHours } from './scheduler.js';
+import { getTaskDuration, sortTasksByPriority, getDailyAvailableHours, getOriginalTotalDuration } from './scheduler.js';
 import { attachTaskInteractions } from './ui-actions.js';
 
 // Cache DOM elements used for rendering
 const elements = {
-    // Task Lists
+    // Task Lists & Messages
     todayTasksList: document.getElementById('todayTasksList'),
     tomorrowTasksList: document.getElementById('tomorrowTasksList'),
     futureTasksList: document.getElementById('futureTasksList'),
+    completedTasksList: document.getElementById('completedTasksList'), // NEU
     noTodayTasks: document.getElementById('noTodayTasks'),
     noTomorrowTasks: document.getElementById('noTomorrowTasks'),
     noFutureTasks: document.getElementById('noFutureTasks'),
+    noCompletedTasks: document.getElementById('noCompletedTasks'), // NEU
+
     // Available Time Displays
     todayAvailableTime: document.getElementById('todayAvailableTime'),
     tomorrowAvailableTime: document.getElementById('tomorrowAvailableTime'),
@@ -22,7 +24,8 @@ const elements = {
     // Settings Modal Elements
     dailyTimeslotsContainer: document.getElementById('dailyTimeslotsContainer'),
     calcPriorityCheckbox: document.getElementById('calcPriorityCheckbox'),
-    autoPriorityCheckbox: document.getElementById('autoPriorityCheckbox'),
+    // NEU: Toggle auf Hauptseite
+    toggleDragDrop: document.getElementById('toggleDragDrop'),
 };
 
 /**
@@ -31,12 +34,17 @@ const elements = {
 export function renderApp() {
     renderTasks();
     updateAvailableTimeDisplays();
+    // NEU: Aktualisiere den Zustand des Toggles
+    if (elements.toggleDragDrop) {
+        // Wenn autoPriority true ist, ist Manuell Sortieren AUS (Checkbox nicht gecheckt).
+        elements.toggleDragDrop.checked = !state.settings.autoPriority;
+    }
 }
 
 function renderTasks() {
     // Clear lists
-    [elements.todayTasksList, elements.tomorrowTasksList, elements.futureTasksList].forEach(list => list.innerHTML = '');
-    [elements.noTodayTasks, elements.noTomorrowTasks, elements.noFutureTasks].forEach(msg => msg.style.display = 'block');
+    [elements.todayTasksList, elements.tomorrowTasksList, elements.futureTasksList, elements.completedTasksList].forEach(list => list.innerHTML = '');
+    [elements.noTodayTasks, elements.noTomorrowTasks, elements.noFutureTasks, elements.noCompletedTasks].forEach(msg => msg.style.display = 'block');
 
     const today = normalizeDate();
     const tomorrow = normalizeDate();
@@ -44,10 +52,11 @@ function renderTasks() {
     const overmorrow = normalizeDate();
     overmorrow.setDate(overmorrow.getDate() + 2);
 
-    // Create a copy for sorting
+    // Separate active and completed tasks
     const activeTasks = [...state.tasks.filter(task => !task.completed)];
+    const completedTasks = [...state.tasks.filter(task => task.completed)];
 
-    // Sort tasks for display if autoPriority is enabled
+    // Sort active tasks if autoPriority is enabled (Manuell Sortieren AUS)
     if (state.settings.autoPriority) {
         activeTasks.sort(sortTasksByPriority);
     }
@@ -55,7 +64,6 @@ function renderTasks() {
     const todayTasks = [], tomorrowTasks = [], futureTasks = [], unscheduledTasks = [];
 
     activeTasks.forEach(task => {
-        // GEÄNDERT: Verwende parseDateString für Robustheit
         const taskPlannedDate = parseDateString(task.plannedDate);
 
         if (!taskPlannedDate) {
@@ -63,7 +71,8 @@ function renderTasks() {
             return;
         }
 
-        if (taskPlannedDate.getTime() === today.getTime()) {
+        // WICHTIG: Wenn das geplante Datum in der Vergangenheit liegt, gehört es zu HEUTE.
+        if (taskPlannedDate.getTime() <= today.getTime()) {
             todayTasks.push(task);
         } else if (taskPlannedDate.getTime() === tomorrow.getTime()) {
             tomorrowTasks.push(task);
@@ -90,27 +99,57 @@ function renderTasks() {
     });
     renderList([...futureTasks, ...unscheduledTasks], elements.futureTasksList, elements.noFutureTasks);
 
+    // Render Completed Tasks (Sortiert nach Erledigungsdatum, neueste zuerst)
+    completedTasks.sort((a, b) => {
+        const dateA = parseDateString(a.completionDate);
+        const dateB = parseDateString(b.completionDate);
+        if (dateA && dateB) return dateB.getTime() - dateA.getTime();
+        return (b.id > a.id) ? 1 : -1; // Fallback
+    });
+    renderList(completedTasks, elements.completedTasksList, elements.noCompletedTasks);
+
+
     attachTaskInteractions();
 }
 
 function createTaskElement(task) {
     const taskElement = document.createElement('div');
-    taskElement.className = `task-item ${task.completed ? 'completed' : ''}`;
-    taskElement.dataset.taskId = task.id;
+    let classes = `task-item`;
 
-    // Draggable status
+    const today = normalizeDate();
+    const taskPlannedDate = parseDateString(task.plannedDate);
+
+    // Status Klassen
+    if (task.completed) {
+        classes += ' completed';
+    } else if (taskPlannedDate && taskPlannedDate.getTime() < today.getTime()) {
+        // NEU: Markiere überfällige Aufgaben
+        classes += ' overdue';
+    }
+
+    // Draggable status & Cursor
+    // autoPriority true = Manuell Sortieren AUS
     const isDraggable = !state.settings.autoPriority && !task.completed;
     taskElement.draggable = isDraggable;
 
+    if (isDraggable) {
+        classes += ' cursor-grab';
+    } else {
+        classes += ' cursor-default';
+    }
+
+    taskElement.className = classes;
+    taskElement.dataset.taskId = task.id;
+
+
     const duration = getTaskDuration(task);
-    // Display duration with 2 decimal places for precision
     const durationDisplay = duration > 0 ? `<span class="ml-4 text-sm text-gray-500">(${duration.toFixed(2)}h)</span>` : '';
 
     // Benefit Display
     let benefitDisplay = '';
     if (task.type === 'Vorteil & Dauer' && task.financialBenefit && parseFloat(task.financialBenefit) > 0) {
         // Calculate based on the original total duration
-        const originalDuration = parseFloat(task.estimatedDuration) || 0;
+        const originalDuration = getOriginalTotalDuration(task);
         if (originalDuration > 0) {
             const benefitPerHour = (parseFloat(task.financialBenefit) / originalDuration).toFixed(2);
             benefitDisplay = `<span class="ml-2 text-sm text-green-700">(${benefitPerHour}€/h)</span>`;
@@ -121,22 +160,23 @@ function createTaskElement(task) {
 
     // Date Display (for future tasks)
     let plannedDateDisplay = '';
-    const today = normalizeDate();
     const tomorrow = normalizeDate();
     tomorrow.setDate(tomorrow.getDate() + 1);
-
-    const taskPlannedDate = parseDateString(task.plannedDate);
 
     // Display date if it's not today or tomorrow
     if (taskPlannedDate && taskPlannedDate.getTime() > tomorrow.getTime()) {
         plannedDateDisplay = `<span class="ml-2 text-sm text-gray-400">(${formatDateToYYYYMMDD(taskPlannedDate)})</span>`;
     }
 
+    // NEU: Manuell geplante Markierung (Pinnadel)
+    const manualScheduleFlag = task.isManuallyScheduled && !state.settings.autoPriority ? `<i class="fas fa-thumbtack text-blue-500 ml-2 text-sm" title="Manuell geplant (wird nicht automatisch verschoben)"></i>` : '';
+
 
     taskElement.innerHTML = `
         <div class="flex items-center flex-grow">
             <input type="checkbox" data-id="${task.id}" ${task.completed ? 'checked' : ''} class="task-checkbox form-checkbox h-5 w-5 text-green-600 rounded mr-3 cursor-pointer">
-            <span class="text-gray-800 text-lg">${task.description}</span>
+            <span class="task-content text-gray-800 text-lg cursor-pointer hover:text-blue-600 transition duration-150">${task.description}</span>
+            ${manualScheduleFlag}
             ${durationDisplay}
             ${benefitDisplay}
             ${task.deadlineDate ? `<span class="ml-2 text-sm text-red-500">Deadline: ${task.deadlineDate}</span>` : ''}
@@ -149,6 +189,7 @@ function createTaskElement(task) {
 }
 
 function updateAvailableTimeDisplays() {
+    // (Logik identisch zur vorherigen Version, aber angepasst für korrekte Berechnung von "Heute")
     const today = normalizeDate();
     const tomorrow = normalizeDate();
     tomorrow.setDate(tomorrow.getDate() + 1);
@@ -162,14 +203,17 @@ function updateAvailableTimeDisplays() {
 
         const duration = getTaskDuration(task);
 
+         // Wenn eine Aufgabe für die Vergangenheit geplant ist, zählt ihre Last zu HEUTE.
+         if (taskDate.getTime() <= today.getTime()) {
+            consumedToday += duration;
+            return;
+        }
+
         // Calculate days difference reliably
         const timeDiff = taskDate.getTime() - today.getTime();
-        // Use Math.round to handle potential daylight savings shifts robustly
         const daysFromToday = Math.round(timeDiff / (1000 * 3600 * 24));
 
-        if (daysFromToday === 0) {
-             consumedToday += duration;
-        } else if (daysFromToday === 1) {
+        if (daysFromToday === 1) {
             consumedTomorrow += duration;
         } else if (daysFromToday >= 2 && daysFromToday < 9) { // Next 7 days starting from overmorrow
             consumedFuture += duration;
@@ -188,25 +232,24 @@ function updateAvailableTimeDisplays() {
 
     elements.todayAvailableTime.textContent = `Verfügbare Zeit: ${formatHoursMinutes(availableToday - consumedToday)}`;
     elements.tomorrowAvailableTime.textContent = `Verfügbare Zeit: ${formatHoursMinutes(availableTomorrow - consumedTomorrow)}`;
-    // Clarify the future time span
     elements.futureAvailableTime.textContent = `Verfügbare Zeit (nächste 7 Tage): ${formatHoursMinutes(availableFuture - consumedFuture)}`;
 }
 
 /**
  * Renders the settings modal content.
- * GEÄNDERT: Nimmt settingsToRender als Argument, um temporären Zustand anzuzeigen.
  * @param {object} settingsToRender - The settings object to use (temporary modal state).
  */
 export function renderSettingsModal(settingsToRender) {
-     // Ensure settingsToRender is valid
      if (!settingsToRender || !settingsToRender.dailyTimeSlots) return;
 
     elements.calcPriorityCheckbox.checked = settingsToRender.calcPriority;
-    elements.autoPriorityCheckbox.checked = settingsToRender.autoPriority;
+    // autoPriorityCheckbox wird hier nicht mehr gesetzt.
+
     renderDailyTimeslots(settingsToRender);
 }
 
 function renderDailyTimeslots(settingsToRender) {
+    // (Logik identisch zur vorherigen Version)
     const container = elements.dailyTimeslotsContainer;
     container.innerHTML = '';
 
