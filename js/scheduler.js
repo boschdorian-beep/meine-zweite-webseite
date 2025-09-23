@@ -1,22 +1,25 @@
 // js/scheduler.js
 import { state } from './state.js';
 import { getDayOfWeek, formatDateToYYYYMMDD, normalizeDate, parseDateString } from './utils.js';
-// GEÄNDERT: Importiere syncTasksToFirestore aus database.js
-import { syncTasksToFirestore } from './database.js';
+// GEÄNDERT: Importiere Datenbank-Funktionen für Aktionen
+import { saveTaskDefinition, deleteTaskDefinition, clearAllCompletedTasks } from './database.js';
 
 const MAX_SCHEDULING_HORIZON = 365;
 const EPSILON = 0.01;
 
-// (Hilfsfunktionen: getTaskDuration, getOriginalTotalDuration, getDailyAvailableHours, getConsumedHoursForDay, sortTasksByPriority)
-// BLEIBEN UNVERÄNDERT WIE IN DER VORHERIGEN VERSION.
+// Hilfsfunktionen (angepasst für Schedule Items und Task Definitions)
 
-export function getTaskDuration(task) {
-    if (task.scheduledDuration !== undefined) {
-        return parseFloat(task.scheduledDuration) || 0;
-    }
-    return getOriginalTotalDuration(task);
+/**
+ * Gibt die Dauer eines Schedule Items zurück.
+ */
+export function getScheduleItemDuration(item) {
+    // Schedule Items haben immer eine scheduledDuration
+    return parseFloat(item.scheduledDuration) || 0;
 }
 
+/**
+ * Gibt die Original-Gesamtdauer der zugrundeliegenden Aufgabe zurück.
+ */
 export function getOriginalTotalDuration(task) {
     if (task.type === 'Vorteil & Dauer') return parseFloat(task.estimatedDuration) || 0;
     if (task.type === 'Deadline') return parseFloat(task.deadlineDuration) || 0;
@@ -24,6 +27,7 @@ export function getOriginalTotalDuration(task) {
     return 0;
 }
 
+// (getDailyAvailableHours bleibt unverändert)
 export function getDailyAvailableHours(date) {
     const dayName = getDayOfWeek(date);
      if (!state.settings || !state.settings.dailyTimeSlots) {
@@ -44,16 +48,21 @@ export function getDailyAvailableHours(date) {
     return totalHours;
 }
 
-function getConsumedHoursForDay(date, taskList) {
+/**
+ * Berechnet die verbrauchte Zeit an einem Tag basierend auf dem aktuellen Schedule.
+ */
+function getConsumedHoursForDay(date, currentSchedule) {
     const dateStr = formatDateToYYYYMMDD(date);
-    return taskList.reduce((sum, task) => {
-        if (task.completed || task.plannedDate !== dateStr) {
+    return currentSchedule.reduce((sum, item) => {
+        // Wir prüfen nur Items im Schedule
+        if (item.plannedDate !== dateStr) {
             return sum;
         }
-        return sum + getTaskDuration(task);
+        return sum + getScheduleItemDuration(item);
     }, 0);
 }
 
+// Prioritätssortierung (Logik unverändert, angewendet auf Task Definitions)
 export function sortTasksByPriority(taskA, taskB) {
     const getBenefitPerHour = (task) => {
         const benefit = parseFloat(task.financialBenefit) || 0;
@@ -61,19 +70,18 @@ export function sortTasksByPriority(taskA, taskB) {
         return (benefit > 0 && duration > 0) ? (benefit / duration) : 0;
     };
 
-    // 1. Fixer Termin
+    // (Logik für Fixer Termin, Deadline unverändert)
     if (taskA.type === 'Fixer Termin' && taskB.type !== 'Fixer Termin') return -1;
     if (taskB.type === 'Fixer Termin' && taskA.type !== 'Fixer Termin') return 1;
 
-    // 2. Deadline
     if (taskA.type === 'Deadline' && taskB.type !== 'Deadline') return -1;
     if (taskB.type === 'Deadline' && taskA.type !== 'Deadline') return 1;
 
-    // 3. Sort by Date if types are the same (Fixer Termin or Deadline)
-    if (taskA.type === taskB.type && (taskA.type === 'Fixer Termin' || taskA.type === 'Deadline')) {
-         if (taskA.plannedDate && taskB.plannedDate) {
-            const dateA = parseDateString(taskA.plannedDate);
-            const dateB = parseDateString(taskB.plannedDate);
+    // Sort by Date if types are the same (using the tempPlannedDate injected during preparation)
+     if (taskA.type === taskB.type && (taskA.type === 'Fixer Termin' || taskA.type === 'Deadline')) {
+         if (taskA.tempPlannedDate && taskB.tempPlannedDate) {
+            const dateA = parseDateString(taskA.tempPlannedDate);
+            const dateB = parseDateString(taskB.tempPlannedDate);
             if (dateA && dateB) {
                 return dateA.getTime() - dateB.getTime();
             }
@@ -81,7 +89,7 @@ export function sortTasksByPriority(taskA, taskB) {
          return 0;
     }
 
-    // 4. Vorteil & Dauer (financial benefit)
+    // Vorteil & Dauer
     if (state.settings.calcPriority) {
         const benefitA = getBenefitPerHour(taskA);
         const benefitB = getBenefitPerHour(taskB);
@@ -93,28 +101,30 @@ export function sortTasksByPriority(taskA, taskB) {
     return 0;
 }
 
-
 /**
- * Plant flexible "Vorteil & Dauer" Aufgaben.
+ * Plant flexible Aufgaben und erstellt Schedule Items.
  */
-function scheduleFlexibleTask(originalTask, currentSchedule) {
-    const totalRequiredDuration = getOriginalTotalDuration(originalTask);
+function scheduleFlexibleTask(task, currentSchedule) {
+    const totalRequiredDuration = getOriginalTotalDuration(task);
 
-    // WICHTIG: Wir verwenden temporäre IDs ('temp-') wenn die Original-ID temporär ist, 
-    // da echte Firestore IDs erst beim Speichern generiert werden. Wenn bereits eine ID existiert, nutzen wir diese.
-    const idPrefix = (originalTask.id && !originalTask.id.startsWith('temp-')) ? originalTask.id : `temp-${Date.now()}-${Math.random()}`;
-
+    // Erstelle ein Basis-Schedule-Item
+    const baseItem = {
+        taskId: task.id, // Link zur Originalaufgabe
+        description: task.description,
+        type: task.type,
+        // Metadaten für die UI
+        financialBenefit: task.financialBenefit,
+        estimatedDuration: task.estimatedDuration,
+        isManuallyScheduled: false
+    };
 
     if (totalRequiredDuration <= EPSILON) {
-        const newPart = {
-            ...originalTask,
-            id: `${idPrefix}-p1`, // ID für diesen Teil
-            originalId: originalTask.id,
+        currentSchedule.push({
+            ...baseItem,
+            scheduleId: `sched-${task.id}-${Date.now()}-1`, // Temporäre ID für die UI
             plannedDate: formatDateToYYYYMMDD(normalizeDate()),
-            scheduledDuration: 0,
-            isManuallyScheduled: false
-        };
-        currentSchedule.push(newPart);
+            scheduledDuration: 0
+        });
         return;
     }
 
@@ -122,22 +132,19 @@ function scheduleFlexibleTask(originalTask, currentSchedule) {
     const startDate = normalizeDate();
     let currentDate = normalizeDate(startDate);
     let partIndex = 1;
-    const originalDescription = originalTask.description;
 
     while (remainingDuration > EPSILON) {
 
+        // Safety Brake (Infinite Loop protection)
         const daysTried = (currentDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24);
         if (daysTried > MAX_SCHEDULING_HORIZON) {
-             const newPart = {
-                ...originalTask,
-                id: `${idPrefix}-UNSCHEDULED`,
-                originalId: originalTask.id,
+             currentSchedule.push({
+                ...baseItem,
+                scheduleId: `sched-${task.id}-${Date.now()}-UNSCHEDULED`,
                 plannedDate: null,
                 scheduledDuration: remainingDuration,
-                description: `${originalDescription} (Nicht planbar - Keine Kapazität)`,
-                isManuallyScheduled: false
-            };
-            currentSchedule.push(newPart);
+                description: `${task.description} (Nicht planbar - Keine Kapazität)`
+            });
             return;
         }
 
@@ -151,22 +158,19 @@ function scheduleFlexibleTask(originalTask, currentSchedule) {
 
         const durationForPart = Math.min(remainingDuration, availableToday);
 
-        const newPart = {
-            ...originalTask,
-            id: `${idPrefix}-p${partIndex}`, // ID für diesen Teil
-            originalId: originalTask.id,
+        const newItem = {
+            ...baseItem,
+            scheduleId: `sched-${task.id}-${Date.now()}-${partIndex}`,
             plannedDate: formatDateToYYYYMMDD(currentDate),
-            scheduledDuration: durationForPart,
-            isManuallyScheduled: false
+            scheduledDuration: durationForPart
         };
 
+        // Update description if split
         if (remainingDuration > durationForPart + EPSILON || partIndex > 1) {
-             newPart.description = `${originalDescription} (Teil ${partIndex})`;
-        } else {
-            newPart.description = originalDescription;
+             newItem.description = `${task.description} (Teil ${partIndex})`;
         }
 
-        currentSchedule.push(newPart);
+        currentSchedule.push(newItem);
         remainingDuration -= durationForPart;
         partIndex++;
 
@@ -177,253 +181,297 @@ function scheduleFlexibleTask(originalTask, currentSchedule) {
 }
 
 /**
- * Bereitet "Fixe" Aufgaben vor.
+ * Berechnet das Zieldatum für fixe Aufgaben (Termine, Deadlines, Manuell).
+ * Injiziert ein temporäres Feld `tempPlannedDate` zur Sortierung.
  */
-function prepareFixedTasks(tasks) {
+function calculateFixedTaskDates(tasks) {
     const today = normalizeDate();
 
     tasks.forEach(task => {
-         if (!task.originalId) {
-            task.originalId = task.id;
-        }
-        // Wir behalten die existierende ID bei, generieren KEINE neue temporäre ID hier.
-
         const duration = getOriginalTotalDuration(task);
-        task.scheduledDuration = duration;
 
-        // (Rest der Logik identisch zur vorherigen Version)
-        // Fall 1: Manuell geplant (durch DnD)
-        if (task.isManuallyScheduled && task.plannedDate) {
-             const manualDate = parseDateString(task.plannedDate);
+        // Fall 1: Manuell geplant (durch DnD) - Verwendet manualDate
+        if (task.isManuallyScheduled && task.manualDate) {
+             const manualDate = parseDateString(task.manualDate);
              if (manualDate && manualDate.getTime() < today.getTime()) {
-                 task.plannedDate = formatDateToYYYYMMDD(today);
+                 task.tempPlannedDate = formatDateToYYYYMMDD(today);
+             } else {
+                task.tempPlannedDate = task.manualDate;
              }
              return;
         }
 
-        // Fall 2: Automatische Planung (Fixer Termin / Deadline)
+        // Fall 2: Fixer Termin
         if (task.type === 'Fixer Termin' && task.fixedDate) {
             const fixedDate = parseDateString(task.fixedDate);
             if (fixedDate) {
                  if (fixedDate.getTime() < today.getTime()) {
-                     task.plannedDate = formatDateToYYYYMMDD(today);
+                     task.tempPlannedDate = formatDateToYYYYMMDD(today);
                  } else {
-                    task.plannedDate = task.fixedDate;
+                    task.tempPlannedDate = task.fixedDate;
                  }
             }
+            return;
+        }
 
-        } else if (task.type === 'Deadline' && task.deadlineDate) {
+        // Fall 3: Deadline
+        if (task.type === 'Deadline' && task.deadlineDate) {
             const originalDeadline = parseDateString(task.deadlineDate);
             if (originalDeadline) {
+                // Puffer Logik
                 const bufferedDeadline = new Date(originalDeadline);
                 bufferedDeadline.setDate(originalDeadline.getDate() - Math.floor(duration));
 
+                // Wenn Puffer in Vergangenheit, aber Deadline noch nicht erreicht, plane HEUTE.
                 if (bufferedDeadline.getTime() < today.getTime() && originalDeadline.getTime() >= today.getTime()) {
-                    task.plannedDate = formatDateToYYYYMMDD(today);
+                    task.tempPlannedDate = formatDateToYYYYMMDD(today);
                 } else {
-                    task.plannedDate = formatDateToYYYYMMDD(bufferedDeadline);
+                    task.tempPlannedDate = formatDateToYYYYMMDD(bufferedDeadline);
                 }
             }
+            return;
         }
     });
     return tasks;
 }
 
+/**
+ * Erstellt Schedule Items für fixe Aufgaben.
+ */
+function scheduleFixedTasks(tasks, currentSchedule) {
+    tasks.forEach(task => {
+        // Erstelle ein Schedule Item basierend auf dem berechneten tempPlannedDate
+        const newItem = {
+            taskId: task.id,
+            scheduleId: `sched-${task.id}-${Date.now()}-fixed`, // Temporäre ID für die UI
+            description: task.description,
+            type: task.type,
+            plannedDate: task.tempPlannedDate || null, // Nutze das berechnete Datum
+            scheduledDuration: getOriginalTotalDuration(task),
+            // Metadaten für die UI
+            deadlineDate: task.deadlineDate,
+            fixedDate: task.fixedDate,
+            isManuallyScheduled: !!task.isManuallyScheduled
+        };
+        currentSchedule.push(newItem);
+    });
+}
+
 
 /**
  * Hauptfunktion zur Neuberechnung des Zeitplans.
- * GEÄNDERT: Ist jetzt ASYNC und ruft syncTasksToFirestore auf.
+ * Liest state.tasks (Definitionen) und schreibt state.schedule (Plan).
  */
-export async function recalculateSchedule() {
+export function recalculateSchedule() {
 
-    // Wenn Auto-Priorität aktiviert wird, alle manuellen Planungen zurücksetzen.
+    // 1. Vorbereitung: Wenn Auto-Prio AN, entferne alle manuellen Planungen (lokal).
     if (state.settings.autoPriority) {
-        state.tasks.forEach(t => t.isManuallyScheduled = false);
+        state.tasks.forEach(t => {
+            t.isManuallyScheduled = false;
+            delete t.manualDate;
+        });
+        // Hinweis: Die DB wird in handleToggleDragDrop aktualisiert.
     }
 
-    // 1. Aufgaben trennen (Logik unverändert, aber angepasst für Metadaten)
-    const completedTasks = state.tasks.filter(t => t.completed);
+    // 2. Aufgaben trennen (Aktiv vs. Erledigt)
+    const activeTasks = state.tasks.filter(t => !t.completed);
 
-    let fixedTasks = state.tasks.filter(t => !t.completed &&
-        (t.type === 'Fixer Termin' || t.type === 'Deadline' || t.isManuallyScheduled)
+    // 3. Trennen in Fix und Flexibel
+    let fixedTasks = activeTasks.filter(t =>
+        t.type === 'Fixer Termin' || t.type === 'Deadline' || t.isManuallyScheduled
     );
 
-    const flexibleOriginalTasksMap = new Map();
-    state.tasks.filter(t => !t.completed && t.type === 'Vorteil & Dauer' && !t.isManuallyScheduled).forEach(task => {
-        const originalId = task.originalId || task.id;
-        if (!flexibleOriginalTasksMap.has(originalId)) {
-            let cleanDescription = task.description.replace(/ \(Teil \d+\)$/, '');
-            cleanDescription = cleanDescription.replace(/ \(Nicht planbar - Keine Kapazität\)$/, '');
+    let flexibleTasks = activeTasks.filter(t =>
+        t.type === 'Vorteil & Dauer' && !t.isManuallyScheduled
+    );
 
-            flexibleOriginalTasksMap.set(originalId, {
-                // Wichtig: Behalte Metadaten (ownerId, assignedTo) bei
-                ...task, 
-                id: originalId,
-                description: cleanDescription,
-                // (Restliche Felder...)
-                type: task.type,
-                completed: false,
-                estimatedDuration: task.estimatedDuration,
-                financialBenefit: task.financialBenefit,
-                isManuallyScheduled: false
-            });
-        }
+    // 4. Berechne Zieldaten für Fixe Aufgaben (injiziert tempPlannedDate)
+    fixedTasks = calculateFixedTaskDates(fixedTasks);
+
+    // 5. Sortiere Fixe Aufgaben nach Datum
+    fixedTasks.sort((a, b) => {
+        const dateA = parseDateString(a.tempPlannedDate);
+        const dateB = parseDateString(b.tempPlannedDate);
+        if (!dateA) return 1;
+        if (!dateB) return -1;
+        return dateA.getTime() - dateB.getTime();
     });
-    const flexibleTasks = Array.from(flexibleOriginalTasksMap.values());
 
-    // 2. Fixe Aufgaben vorbereiten
-    fixedTasks = prepareFixedTasks(fixedTasks);
-    const newSchedule = [...fixedTasks];
+    // 6. Erstelle den initialen Schedule mit Fixen Aufgaben
+    const newSchedule = [];
+    scheduleFixedTasks(fixedTasks, newSchedule);
 
-    // 3. Flexible Aufgaben sortieren
+    // 7. Sortiere Flexible Aufgaben (nur wenn Auto-Prio AN)
     if (state.settings.autoPriority) {
         flexibleTasks.sort(sortTasksByPriority);
     }
+    // Wenn AUS, wird die Reihenfolge in state.tasks respektiert.
 
-    // 4. Flexible Aufgaben in die Lücken planen
+    // 8. Plane Flexible Aufgaben in die Lücken
     flexibleTasks.forEach(task => {
         scheduleFlexibleTask(task, newSchedule);
     });
 
-    // 5. Kombinieren und Synchronisieren
-    state.tasks = [...newSchedule, ...completedTasks];
+    // 9. Aufräumen: Entferne temporäre Felder von den Definitionen
+    activeTasks.forEach(t => delete t.tempPlannedDate);
 
-    // GEÄNDERT: Synchronisiere mit Firestore (async)
-    await syncTasksToFirestore(state.tasks);
+    // 10. Aktualisiere den globalen State
+    state.schedule = newSchedule;
 }
 
+
+// --- Aktionen (Alle sind async und interagieren mit der DB) ---
+
 /**
- * GEÄNDERT: Ist jetzt ASYNC.
+ * Toggelt den Erledigt-Status einer Aufgabe.
  */
 export async function toggleTaskCompleted(taskId, isCompleted) {
-    const taskIndex = state.tasks.findIndex(task => task.id === taskId);
+    // Finde die Definition
+    const task = state.tasks.find(t => t.id === taskId);
 
-    if (taskIndex > -1) {
-        const originalId = state.tasks[taskIndex].originalId || state.tasks[taskIndex].id;
+    if (task) {
+        // 1. Update lokalen State
+        task.completed = isCompleted;
+        task.completionDate = isCompleted ? formatDateToYYYYMMDD(new Date()) : null;
 
-        // Update ALL parts of the original task
-        state.tasks.forEach(task => {
-            if ((task.originalId || task.id) === originalId) {
-                task.completed = isCompleted;
-                task.completionDate = isCompleted ? formatDateToYYYYMMDD(new Date()) : null;
-            }
-        });
+        // 2. Speichere die Änderung der Definition in der DB (async)
+        await saveTaskDefinition(task);
 
-        await recalculateSchedule();
+        // 3. Berechne den Schedule neu
+        recalculateSchedule();
     }
 }
 
 /**
- * GEÄNDERT: Ist jetzt ASYNC.
+ * Löscht alle erledigten Aufgaben.
  */
 export async function clearCompletedTasks() {
+    const completedTasks = state.tasks.filter(task => task.completed);
+    const idsToDelete = completedTasks.map(t => t.id);
+
+    // 1. Lösche in DB (Batch)
+    await clearAllCompletedTasks(idsToDelete);
+
+    // 2. Entferne aus lokalem State
     state.tasks = state.tasks.filter(task => !task.completed);
-    // Wir müssen synchronisieren, da Aufgaben gelöscht wurden.
-    await syncTasksToFirestore(state.tasks);
+
+    // 3. Berechne den Schedule neu
+    recalculateSchedule();
 }
 
 /**
- * GEÄNDERT: Ist jetzt ASYNC.
+ * Aktualisiert Details einer Aufgabe (aus dem Edit-Modal).
  */
 export async function updateTaskDetails(taskId, updatedDetails) {
-    // Finde die Aufgabe anhand ihrer ID (die jetzt die Firestore ID ist)
-    const taskToUpdate = state.tasks.find(t => t.id === taskId);
+    const task = state.tasks.find(t => t.id === taskId);
 
-    if (!taskToUpdate && taskId !== null) {
-        await recalculateSchedule();
+    if (!task) {
         return;
     }
 
-    // Finde die Original-ID, um alle Teile zu aktualisieren
-    const originalId = taskToUpdate ? (taskToUpdate.originalId || taskToUpdate.id) : null;
+    // 1. Aktualisiere Eigenschaften im lokalen State
+    if (updatedDetails.description !== undefined) {
+        task.description = updatedDetails.description;
+    }
+    // Setze manuellen Status zurück
+    task.isManuallyScheduled = false;
+    delete task.manualDate;
 
-    // Finde alle Teile der Aufgabe
-    const taskParts = state.tasks.filter(t => (t.originalId || t.id) === originalId);
+    if (task.type === 'Vorteil & Dauer') {
+        if (updatedDetails.estimatedDuration !== undefined) task.estimatedDuration = updatedDetails.estimatedDuration;
+        if (updatedDetails.financialBenefit !== undefined) task.financialBenefit = updatedDetails.financialBenefit;
+    } else if (task.type === 'Deadline') {
+        if (updatedDetails.deadlineDate !== undefined) task.deadlineDate = updatedDetails.deadlineDate;
+        if (updatedDetails.deadlineDuration !== undefined) task.deadlineDuration = updatedDetails.deadlineDuration;
+    } else if (task.type === 'Fixer Termin') {
+        if (updatedDetails.fixedDate !== undefined) task.fixedDate = updatedDetails.fixedDate;
+        if (updatedDetails.fixedDuration !== undefined) task.fixedDuration = updatedDetails.fixedDuration;
+    }
 
+    // 2. Speichere in DB
+    await saveTaskDefinition(task);
+    // 3. Berechne Schedule neu
+    recalculateSchedule();
+}
 
-    // Aktualisiere die Eigenschaften für alle Teile
-    taskParts.forEach(part => {
-        if (updatedDetails.description !== undefined) {
-             part.description = updatedDetails.description;
-        }
-        part.isManuallyScheduled = false;
-
-        // HINWEIS: Hier wird später 'assignedTo' aktualisiert (Phase 2)
-
-        if (part.type === 'Vorteil & Dauer') {
-            if (updatedDetails.estimatedDuration !== undefined) part.estimatedDuration = updatedDetails.estimatedDuration;
-            if (updatedDetails.financialBenefit !== undefined) part.financialBenefit = updatedDetails.financialBenefit;
-        } else if (part.type === 'Deadline') {
-            if (updatedDetails.deadlineDate !== undefined) part.deadlineDate = updatedDetails.deadlineDate;
-            if (updatedDetails.deadlineDuration !== undefined) part.deadlineDuration = updatedDetails.deadlineDuration;
-        } else if (part.type === 'Fixer Termin') {
-            if (updatedDetails.fixedDate !== undefined) part.fixedDate = updatedDetails.fixedDate;
-            if (updatedDetails.fixedDuration !== undefined) part.fixedDuration = updatedDetails.fixedDuration;
-        }
-    });
-
-    await recalculateSchedule();
+/**
+ * Löscht eine Aufgabe.
+ */
+export async function deleteTaskAction(taskId) {
+     // 1. Lösche in DB
+     await deleteTaskDefinition(taskId);
+     // 2. Entferne aus lokalem State
+     state.tasks = state.tasks.filter(t => t.id !== taskId);
+     // 3. Berechne Schedule neu
+     recalculateSchedule();
 }
 
 
 /**
- * GEÄNDERT: Ist jetzt ASYNC.
+ * Aktualisiert Reihenfolge UND/ODER Datum nach Drag-and-Drop.
  */
-export async function handleTaskDrop(draggedId, dropTargetId, insertBefore, newDate) {
-    const draggedTaskIndex = state.tasks.findIndex(task => task.id === draggedId);
-    if (draggedTaskIndex === -1) return false;
+export async function handleTaskDrop(draggedTaskId, dropTargetTaskId, insertBefore, newDate) {
+    // Finde die Definition
+    const draggedTask = state.tasks.find(t => t.id === draggedTaskId);
+    if (!draggedTask) return false;
 
-    const draggedTask = state.tasks[draggedTaskIndex];
-    const originalPlannedDate = draggedTask.plannedDate;
     const newPlannedDateString = newDate ? formatDateToYYYYMMDD(newDate) : null;
+    let needsDbUpdate = false;
 
-    const dateChanged = newPlannedDateString && originalPlannedDate !== newPlannedDateString;
+    // 1. Behandle Datumsänderung (Verschieben zwischen Tagen)
+    if (newPlannedDateString) {
 
-    // Fall 1: Datum hat sich geändert
-    if (dateChanged) {
+        // Prüfen, ob sich das relevante Datum wirklich geändert hat
+        const currentDate = draggedTask.isManuallyScheduled ? draggedTask.manualDate : (draggedTask.type === 'Fixer Termin' ? draggedTask.fixedDate : null);
 
-        // Sicherheitsabfrage für Fixe Termine
-        if (draggedTask.type === 'Fixer Termin') {
-            if (!confirm(`Möchtest du den Termin "${draggedTask.description}" wirklich auf den ${newPlannedDateString} verschieben?`)) {
-                return false; // Abbrechen
-            }
-        }
-
-        // Update das Datum aller Teile der Original-Aufgabe
-        const originalId = draggedTask.originalId || draggedTask.id;
-        state.tasks.forEach(task => {
-            if ((task.originalId || task.id) === originalId) {
-                if (task.type === 'Fixer Termin') {
-                    task.fixedDate = newPlannedDateString;
-                    task.plannedDate = newPlannedDateString;
-                    task.isManuallyScheduled = false;
-                } else {
-                    task.plannedDate = newPlannedDateString;
-                    task.isManuallyScheduled = true;
+        if (currentDate !== newPlannedDateString) {
+            // Sicherheitsabfrage für Fixe Termine
+            if (draggedTask.type === 'Fixer Termin') {
+                if (!confirm(`Möchtest du den Termin "${draggedTask.description}" wirklich auf den ${newPlannedDateString} verschieben?`)) {
+                    return false; // Abbrechen
                 }
-            }
-        });
-    }
-
-    // Fall 2: Reihenfolge aktualisieren
-    const currentIndex = state.tasks.findIndex(task => task.id === draggedId);
-
-    if (dropTargetId && currentIndex > -1) {
-        const [removed] = state.tasks.splice(currentIndex, 1);
-        const newDropIndex = state.tasks.findIndex(task => task.id === dropTargetId);
-
-        if (newDropIndex > -1) {
-            if (insertBefore) {
-                state.tasks.splice(newDropIndex, 0, removed);
+                draggedTask.fixedDate = newPlannedDateString;
+                draggedTask.isManuallyScheduled = false;
+                delete draggedTask.manualDate;
             } else {
-                state.tasks.splice(newDropIndex + 1, 0, removed);
+                // Für Deadline und V&D: Pinnen (Manuell Planen)
+                draggedTask.manualDate = newPlannedDateString;
+                draggedTask.isManuallyScheduled = true;
             }
-        } else {
-            state.tasks.push(removed);
+            needsDbUpdate = true;
         }
     }
 
-    // Immer neu berechnen und synchronisieren (async)
-    await recalculateSchedule();
-    return true; // Erfolgreich verschoben
+    // 2. Behandle Reihenfolgeänderung (Umsortieren in state.tasks)
+    // Dies ist wichtig, wenn Auto-Prio AUS ist.
+    if (dropTargetTaskId) {
+        const currentIndex = state.tasks.findIndex(task => task.id === draggedTaskId);
+        if (currentIndex > -1) {
+            // Entferne das gezogene Element
+            const [removed] = state.tasks.splice(currentIndex, 1);
+
+            // Finde den Index des Ziels
+            const newDropIndex = state.tasks.findIndex(task => task.id === dropTargetTaskId);
+
+            if (newDropIndex > -1) {
+                if (insertBefore) {
+                    state.tasks.splice(newDropIndex, 0, removed);
+                } else {
+                    state.tasks.splice(newDropIndex + 1, 0, removed);
+                }
+            } else {
+                 // Fallback
+                state.tasks.push(removed);
+            }
+        }
+    }
+
+    // 3. Speichere die Datumsänderung/Pinning in der DB, falls nötig
+    if (needsDbUpdate) {
+        await saveTaskDefinition(draggedTask);
+    }
+
+    // 4. Immer neu berechnen, da sich Zustand geändert hat.
+    recalculateSchedule();
+    return true; // Erfolgreich
 }
