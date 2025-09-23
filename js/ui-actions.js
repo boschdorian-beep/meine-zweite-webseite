@@ -4,21 +4,30 @@ import { WEEKDAYS } from './config.js';
 import { toggleTaskCompleted, updateTaskOrder } from './scheduler.js';
 import { renderApp, renderSettingsModal } from './ui-render.js';
 
+// NEU: Temporärer Zustand für das Modal. Änderungen werden erst bei "Speichern" global wirksam.
+let modalState = {
+    tempSettings: {}
+};
+
 // --- Task Interactions (Checkbox, Drag & Drop) ---
 
 export function attachTaskInteractions() {
     // Checkbox handling
     document.querySelectorAll('.task-checkbox').forEach(checkbox => {
-        // Use arrow function to maintain 'this' context if needed, though not strictly necessary here
-        checkbox.addEventListener('change', (event) => {
-            const taskId = event.target.dataset.id;
-            toggleTaskCompleted(taskId, event.target.checked);
-            renderApp(); // Re-render after state change (which includes recalculation)
-        });
+        // Wichtig: Entferne vorherige Listener, um Duplikate nach dem Rendern zu vermeiden
+        checkbox.removeEventListener('change', handleCheckboxChange);
+        checkbox.addEventListener('change', handleCheckboxChange);
     });
 
     // Drag and Drop handling
     document.querySelectorAll('.task-item').forEach(taskElement => {
+        // Wichtig: Entferne vorherige Listener
+        taskElement.removeEventListener('dragstart', handleDragStart);
+        taskElement.removeEventListener('dragover', handleDragOver);
+        taskElement.removeEventListener('dragleave', handleDragLeave);
+        taskElement.removeEventListener('drop', handleDrop);
+        taskElement.removeEventListener('dragend', handleDragEnd);
+
         if (taskElement.draggable) {
             taskElement.addEventListener('dragstart', handleDragStart);
             taskElement.addEventListener('dragover', handleDragOver);
@@ -29,7 +38,13 @@ export function attachTaskInteractions() {
     });
 }
 
-// --- Drag and Drop Handlers ---
+function handleCheckboxChange(event) {
+    const taskId = event.target.dataset.id;
+    toggleTaskCompleted(taskId, event.target.checked);
+    renderApp(); // Re-render after state change (which includes recalculation)
+}
+
+// --- Drag and Drop Handlers (Unverändert) ---
 
 function handleDragStart(e) {
     state.draggedItem = e.target;
@@ -97,33 +112,44 @@ function handleDragEnd() {
 // --- Settings Modal Actions ---
 
 export function openModal() {
-    renderSettingsModal(); // Render content based on current state
-    document.getElementById('settingsModal').style.display = 'flex';
+    // Erstelle eine tiefe Kopie der aktuellen Einstellungen für die Modal-Sitzung
+    modalState.tempSettings = JSON.parse(JSON.stringify(state.settings));
+
+    renderSettingsModal(modalState.tempSettings); // Rendere Modal basierend auf der Kopie
+    const modal = document.getElementById('settingsModal');
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
     attachModalEventListeners();
 }
 
 export function closeModal() {
-    document.getElementById('settingsModal').style.display = 'none';
+    const modal = document.getElementById('settingsModal');
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+    // Temporären Zustand löschen
+    modalState.tempSettings = {};
 }
 
 /**
- * Reads the settings from the modal inputs.
+ * Liest die Einstellungen aus den Modal-Eingaben und aktualisiert den modalState.
+ * Wird von main.js beim Speichern aufgerufen.
  */
-export function getSettingsFromModal() {
-    const newSettings = {
-        calcPriority: document.getElementById('calcPriorityCheckbox').checked,
-        autoPriority: document.getElementById('autoPriorityCheckbox').checked,
-        dailyTimeSlots: {}
-    };
+export function updateAndGetSettingsFromModal() {
+    // Aktualisiere temporäre Einstellungen basierend auf Checkboxen
+    modalState.tempSettings.calcPriority = document.getElementById('calcPriorityCheckbox').checked;
+    modalState.tempSettings.autoPriority = document.getElementById('autoPriorityCheckbox').checked;
 
+    // Aktualisiere Zeitfenster basierend auf Eingabefeldern (Wichtig, falls Benutzer Zeit manuell bearbeitet)
     WEEKDAYS.forEach(dayName => {
         const dayTimeslotsElements = document.getElementById(`timeslots-${dayName}`);
         if (dayTimeslotsElements) {
             const currentDaySlots = [];
+            // Wählt die Zeilen aus (Klasse .timeslot-row wird in ui-render.js hinzugefügt)
             dayTimeslotsElements.querySelectorAll('.timeslot-row').forEach(slotDiv => {
                 const startInput = slotDiv.querySelector('.timeslot-start-input');
                 const endInput = slotDiv.querySelector('.timeslot-end-input');
                 const slotId = slotDiv.dataset.timeslotId;
+                // Nur speichern, wenn Werte vorhanden sind
                 if (startInput && endInput && startInput.value && endInput.value) {
                     currentDaySlots.push({
                         id: slotId,
@@ -132,10 +158,14 @@ export function getSettingsFromModal() {
                     });
                 }
             });
-            newSettings.dailyTimeSlots[dayName] = currentDaySlots;
+            // Ensure the structure exists before assignment
+            if (modalState.tempSettings.dailyTimeSlots) {
+                modalState.tempSettings.dailyTimeSlots[dayName] = currentDaySlots;
+            }
         }
     });
-    return newSettings;
+
+    return modalState.tempSettings;
 }
 
 /**
@@ -143,44 +173,52 @@ export function getSettingsFromModal() {
  */
 function attachModalEventListeners() {
     const container = document.getElementById('dailyTimeslotsContainer');
-    // Remove existing listener to prevent duplicates if modal is opened multiple times
+    // Remove existing listener to prevent duplicates
     container.removeEventListener('click', handleTimeslotAction);
     container.addEventListener('click', handleTimeslotAction);
 }
 
 // Handles dynamic interactions in the modal (Add/Remove slots)
+// Arbeitet nur noch auf modalState.tempSettings
 function handleTimeslotAction(event) {
     const target = event.target;
     const day = target.dataset.day;
 
     if (!day) return;
 
-    // To provide immediate UI feedback in the modal before "Save" is clicked,
-    // we update the state temporarily based on the current DOM inputs.
-    const tempSettings = getSettingsFromModal();
-    state.settings = tempSettings; // Update state temporarily
+    // Zuerst sicherstellen, dass modalState aktuell ist (bezüglich manueller Zeiteingaben)
+    updateAndGetSettingsFromModal();
 
+    // Ensure the structure exists before modification
+    if (!modalState.tempSettings.dailyTimeSlots[day]) {
+        modalState.tempSettings.dailyTimeSlots[day] = [];
+    }
+
+    // Jetzt die Aktion auf modalState.tempSettings ausführen
     if (target.classList.contains('remove-timeslot-btn')) {
         const slotIdToRemove = target.dataset.timeslotId;
-        state.settings.dailyTimeSlots[day] = state.settings.dailyTimeSlots[day].filter(slot => slot.id !== slotIdToRemove);
+        modalState.tempSettings.dailyTimeSlots[day] = modalState.tempSettings.dailyTimeSlots[day].filter(slot => slot.id !== slotIdToRemove);
+
     } else if (target.classList.contains('add-timeslot-btn')) {
-        if (!state.settings.dailyTimeSlots[day]) state.settings.dailyTimeSlots[day] = [];
-        state.settings.dailyTimeSlots[day].push({
+        modalState.tempSettings.dailyTimeSlots[day].push({
             id: 'ts-' + Date.now(),
             start: "09:00",
             end: "17:00"
         });
+
     } else if (target.classList.contains('remove-day-btn')) {
-        state.settings.dailyTimeSlots[day] = [];
+        modalState.tempSettings.dailyTimeSlots[day] = [];
+
     } else if (target.classList.contains('restore-day-btn')) {
-        state.settings.dailyTimeSlots[day] = [{ id: `ts-${Date.now()}`, start: "09:00", end: "17:00" }];
+        modalState.tempSettings.dailyTimeSlots[day] = [{ id: `ts-${Date.now()}`, start: "09:00", end: "17:00" }];
     }
 
-    renderSettingsModal(); // Re-render modal UI
+    // Re-render modal UI mit dem temporären Zustand
+    renderSettingsModal(modalState.tempSettings);
 }
 
 
-// --- Task Type Selection ---
+// --- Task Type Selection (Unverändert) ---
 
 export function setActiveTaskType(button) {
     document.querySelectorAll('.task-type-btn').forEach(btn => {
@@ -203,7 +241,7 @@ export function setActiveTaskType(button) {
     }
 }
 
-// --- Input Management ---
+// --- Input Management (Unverändert) ---
 export function clearInputs() {
     document.getElementById('newTaskInput').value = '';
     document.getElementById('estimated-duration').value = '1';
