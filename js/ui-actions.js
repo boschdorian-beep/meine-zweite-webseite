@@ -1,27 +1,31 @@
 // js/ui-actions.js
 import { state } from './state.js';
 import { WEEKDAYS } from './config.js';
-// GEÄNDERT: Importiere deleteTaskAction
 import { toggleTaskCompleted, handleTaskDrop, updateTaskDetails, getOriginalTotalDuration, deleteTaskAction } from './scheduler.js';
 import { renderApp, renderSettingsModal } from './ui-render.js';
 import { parseDateString } from './utils.js';
+// NEU: Importiere Collaboration Funktionen
+import { searchUsers, getUsersByIds } from './collaboration.js';
 
-// Temporärer Zustand für das Einstellungs-Modal.
+// Temporärer Zustand für Modals.
 let modalState = {
-    tempSettings: {}
+    tempSettings: {},
+    // NEU: Zustand für das Edit Modal
+    editModal: {
+        assignedUsers: [], // Array von {uid, email} Objekten
+        ownerId: null
+    }
 };
 
-// --- Task Interactions ---
+// --- Task Interactions (Unverändert) ---
 
 export function attachTaskInteractions() {
     // (Setup Logik unverändert)
-    // Checkbox handling
     document.querySelectorAll('.task-checkbox').forEach(checkbox => {
         checkbox.removeEventListener('change', handleCheckboxChange);
         checkbox.addEventListener('change', handleCheckboxChange);
     });
 
-    // Drag and Drop handling für Task Items (Start/End)
     document.querySelectorAll('.task-item').forEach(taskElement => {
         taskElement.removeEventListener('dragstart', handleDragStart);
         taskElement.removeEventListener('dragend', handleDragEnd);
@@ -32,13 +36,11 @@ export function attachTaskInteractions() {
         }
     });
 
-    // Drag and Drop handling für Drop Zones (Listen)
     document.querySelectorAll('.drop-zone').forEach(zone => {
         zone.removeEventListener('dragover', handleDragOver);
         zone.removeEventListener('dragleave', handleDragLeaveZone);
         zone.removeEventListener('drop', handleDrop);
 
-        // Nur aktivieren, wenn D&D erlaubt ist
         if (!state.settings.autoPriority) {
             zone.addEventListener('dragover', handleDragOver);
             zone.addEventListener('dragleave', handleDragLeaveZone);
@@ -46,35 +48,30 @@ export function attachTaskInteractions() {
         }
     });
 
-    // Klick auf Task Content zum Bearbeiten
     document.querySelectorAll('.task-content').forEach(content => {
         content.removeEventListener('click', handleTaskContentClick);
         content.addEventListener('click', handleTaskContentClick);
     });
 }
 
-// GEÄNDERT: Nutzt data-task-id
 async function handleCheckboxChange(event) {
-    // Die ID kommt jetzt direkt vom Checkbox-Attribut (das in ui-render.js gesetzt wird)
     const taskId = event.target.dataset.taskId;
     await toggleTaskCompleted(taskId, event.target.checked);
     renderApp();
 }
 
-// --- Drag and Drop Handlers ---
+// --- Drag and Drop Handlers (Unverändert) ---
+// (handleDragStart, handleDragOver, handleDragLeaveZone, handleDrop, handleDragEnd)
 
-// GEÄNDERT: Nutzt data-task-id
 function handleDragStart(e) {
     state.draggedItem = e.target;
     e.dataTransfer.effectAllowed = 'move';
-    // Wir übertragen die Task ID (die ID der Definition)
     e.dataTransfer.setData('text/plain', state.draggedItem.dataset.taskId);
     setTimeout(() => {
         state.draggedItem.classList.add('dragging');
     }, 0);
 }
 
-// (handleDragOver, handleDragLeaveZone unverändert)
 function handleDragOver(e) {
     e.preventDefault();
     const zone = e.currentTarget;
@@ -103,29 +100,23 @@ function handleDragLeaveZone(e) {
     }
 }
 
-
-// GEÄNDERT: Angepasst an Task IDs
 async function handleDrop(e) {
     e.preventDefault();
     if (!state.draggedItem) return;
 
     const dropTargetItem = e.target.closest('.task-item');
-    // Wir lesen die Task ID aus dem gezogenen Element
     const draggedTaskId = state.draggedItem.dataset.taskId;
 
     let dropTargetTaskId = null;
     let insertBefore = false;
 
-    // 1. Bestimme Zielposition
     if (dropTargetItem && dropTargetItem !== state.draggedItem) {
-        // Wir benötigen die Task ID des Ziels für die Neusortierung in state.tasks
         dropTargetTaskId = dropTargetItem.dataset.taskId;
         const rect = dropTargetItem.getBoundingClientRect();
         const offsetY = e.clientY - rect.top;
         insertBefore = offsetY < rect.height / 2;
     }
 
-    // 2. Bestimme Zieldatum (Logik unverändert, aber angepasst an neue Struktur)
     let newDate = null;
     const zone = e.currentTarget;
     const section = zone.closest('[data-date-offset]');
@@ -137,9 +128,7 @@ async function handleDrop(e) {
         }
         if (offset === 2) {
             if (dropTargetItem) {
-                 // Finde das Zieldatum basierend auf dem Schedule Item des Ziels
                  const targetScheduleId = dropTargetItem.dataset.scheduleId;
-                 // Wir müssen im Schedule suchen, da das Datum dort steht
                  const targetScheduleItem = state.schedule.find(s => s.scheduleId === targetScheduleId);
 
                  if (targetScheduleItem && targetScheduleItem.plannedDate) {
@@ -153,16 +142,14 @@ async function handleDrop(e) {
         }
     }
 
-    // Logik im Scheduler ausführen (async)
     const success = await handleTaskDrop(draggedTaskId, dropTargetTaskId, insertBefore, newDate);
 
     if (success) {
         renderApp();
     }
-    handleDragEnd(); // Clean up
+    handleDragEnd();
 }
 
-// (handleDragEnd unverändert)
 function handleDragEnd() {
     if (state.draggedItem) {
         state.draggedItem.classList.remove('dragging');
@@ -177,29 +164,29 @@ function handleDragEnd() {
 }
 
 
-// --- Edit Modal Actions ---
+// --- Edit Modal Actions (Stark überarbeitet für Kollaboration) ---
 
-// GEÄNDERT: Nutzt data-task-id
 function handleTaskContentClick(event) {
     const taskId = event.target.closest('.task-item').dataset.taskId;
     openEditModal(taskId);
 }
 
-// GEÄNDERT: Lädt Daten aus state.tasks (Definitionen)
-export function openEditModal(taskId) {
-    // Finde die Originalaufgabe in state.tasks
+// GEÄNDERT: Lädt jetzt auch Zuweisungen (async)
+export async function openEditModal(taskId) {
     const task = state.tasks.find(t => t.id === taskId);
     if (!task) return;
 
-    // Befülle das Modal
+    // 1. Modal-Zustand initialisieren
+    modalState.editModal.ownerId = task.ownerId;
+    modalState.editModal.assignedUsers = []; // Wird gleich geladen
+
+    // 2. Basisdaten befüllen (unverändert)
     document.getElementById('edit-task-id').value = task.id;
     document.getElementById('edit-task-type').value = task.type;
     document.getElementById('edit-description').value = task.description;
 
-    // Verstecke alle Input-Gruppen
     document.querySelectorAll('.edit-inputs').forEach(el => el.classList.add('hidden'));
 
-    // Zeige relevante Inputs und befülle sie
     if (task.type === 'Vorteil & Dauer') {
         document.getElementById('editVorteilDauerInputs').classList.remove('hidden');
         document.getElementById('edit-estimated-duration').value = getOriginalTotalDuration(task);
@@ -214,20 +201,157 @@ export function openEditModal(taskId) {
         document.getElementById('edit-fixed-duration').value = getOriginalTotalDuration(task);
     }
 
-    // Zeige das Modal
+    // 3. Zeige das Modal und initialisiere die Kollaborations-UI
     const modal = document.getElementById('editTaskModal');
     modal.classList.remove('hidden');
     modal.classList.add('flex');
+    
+    // Event Listener für Suche und Aktionen anhängen
+    setupCollaborationUIEvents();
+    // Initial leere Liste rendern, während Profile laden
+    renderAssignedUsers(); 
+
+    // 4. Lade zugewiesene Benutzerprofile (async)
+    const assignedUids = task.assignedTo || [];
+    const userProfiles = await getUsersByIds(assignedUids);
+
+    // Konvertiere Map in Array und speichere im Modal-Zustand
+    // Verwende einen Fallback, falls ein Profil nicht geladen werden konnte
+    modalState.editModal.assignedUsers = assignedUids.map(uid => userProfiles[uid] || { uid: uid, email: `Lade... (${uid.substring(0, 6)})` });
+    
+    // Rendere die Liste der Zuweisungen erneut mit geladenen Daten
+    renderAssignedUsers();
 }
 
+// NEU: Initialisiert die UI Events für das Edit Modal
+function setupCollaborationUIEvents() {
+    const searchInput = document.getElementById('user-search-input');
+    const searchResults = document.getElementById('user-search-results');
+    const assignedList = document.getElementById('assigned-users-list');
+
+    // Sucheingabe (Debounced)
+    let timeout = null;
+    searchInput.value = ''; // Input leeren
+    searchResults.classList.add('hidden'); // Ergebnisse verstecken
+
+    // Verwende eine benannte Funktion, um Listener sauber zu entfernen/hinzuzufügen
+    const handleInput = () => {
+        clearTimeout(timeout);
+        timeout = setTimeout(async () => {
+            const results = await searchUsers(searchInput.value);
+            renderSearchResults(results);
+        }, 300); // 300ms Verzögerung
+    };
+    
+    // Setze den Listener
+    searchInput.oninput = handleInput;
+
+
+    // Klick auf Suchergebnis (Hinzufügen)
+    searchResults.onclick = (event) => {
+        const userElement = event.target.closest('.user-search-item');
+        if (userElement) {
+            const uid = userElement.dataset.uid;
+            const email = userElement.dataset.email;
+            addUserToAssignment(uid, email);
+            // UI aufräumen
+            searchInput.value = '';
+            searchResults.classList.add('hidden');
+        }
+    };
+
+    // Klick auf Zuweisungsliste (Entfernen)
+    assignedList.onclick = (event) => {
+        if (event.target.classList.contains('remove-assignment-btn')) {
+            const uid = event.target.dataset.uid;
+            removeUserFromAssignment(uid);
+        }
+    };
+}
+
+// NEU: Fügt Benutzer zum temporären Modal-Zustand hinzu
+function addUserToAssignment(uid, email) {
+    if (!modalState.editModal.assignedUsers.find(u => u.uid === uid)) {
+        modalState.editModal.assignedUsers.push({ uid, email });
+        renderAssignedUsers();
+    }
+}
+
+// NEU: Entfernt Benutzer aus dem temporären Modal-Zustand
+function removeUserFromAssignment(uid) {
+    // Der Besitzer kann nicht entfernt werden
+    if (uid === modalState.editModal.ownerId) {
+        alert("Der Besitzer der Aufgabe kann nicht entfernt werden.");
+        return;
+    }
+    modalState.editModal.assignedUsers = modalState.editModal.assignedUsers.filter(u => u.uid !== uid);
+    renderAssignedUsers();
+}
+
+// NEU: Rendert die Suchergebnisse
+function renderSearchResults(results) {
+    const searchResults = document.getElementById('user-search-results');
+    searchResults.innerHTML = '';
+    
+    if (results.length === 0 && document.getElementById('user-search-input').value.length > 0) {
+        searchResults.innerHTML = '<div class="p-3 text-gray-500">Keine Benutzer gefunden. (Stellen Sie sicher, dass der Benutzer registriert ist)</div>';
+        searchResults.classList.remove('hidden');
+        return;
+    }
+
+    let count = 0;
+    results.forEach(user => {
+        // Nur anzeigen, wenn noch nicht zugewiesen
+        if (!modalState.editModal.assignedUsers.find(u => u.uid === user.uid)) {
+            const item = document.createElement('div');
+            item.className = 'p-3 hover:bg-gray-100 cursor-pointer user-search-item';
+            item.dataset.uid = user.uid;
+            item.dataset.email = user.email;
+            item.textContent = user.email;
+            searchResults.appendChild(item);
+            count++;
+        }
+    });
+
+    if (count > 0) {
+        searchResults.classList.remove('hidden');
+    } else {
+        searchResults.classList.add('hidden');
+    }
+}
+
+// NEU: Rendert die Liste der zugewiesenen Benutzer
+function renderAssignedUsers() {
+    const assignedList = document.getElementById('assigned-users-list');
+    assignedList.innerHTML = '';
+
+    modalState.editModal.assignedUsers.forEach(user => {
+        const item = document.createElement('div');
+        item.className = 'flex justify-between items-center bg-white p-2 rounded-lg shadow-sm';
+        
+        const isOwner = user.uid === modalState.editModal.ownerId;
+        const roleText = isOwner ? '(Besitzer)' : '';
+
+        item.innerHTML = `
+            <span>${user.email} <span class="text-sm text-gray-500">${roleText}</span></span>
+            ${!isOwner ? `<button data-uid="${user.uid}" class="remove-assignment-btn text-red-500 hover:text-red-700 text-xl leading-none">&times;</button>` : ''}
+        `;
+        assignedList.appendChild(item);
+    });
+}
+
+
 export function closeEditModal() {
-    // (Unverändert)
     const modal = document.getElementById('editTaskModal');
     modal.classList.add('hidden');
     modal.classList.remove('flex');
+    // NEU: Modal-Zustand zurücksetzen
+    modalState.editModal = { assignedUsers: [], ownerId: null };
+    document.getElementById('user-search-input').value = '';
+    document.getElementById('user-search-results').classList.add('hidden');
 }
 
-// (handleSaveEditedTask Logik unverändert, aber async)
+// GEÄNDERT: Liest jetzt auch Zuweisungen
 export async function handleSaveEditedTask() {
     const taskId = document.getElementById('edit-task-id').value;
     const type = document.getElementById('edit-task-type').value;
@@ -238,8 +362,12 @@ export async function handleSaveEditedTask() {
         return;
     }
 
+    // NEU: Lese Zuweisungen aus dem Modal-Zustand
+    const assignedUids = modalState.editModal.assignedUsers.map(u => u.uid);
+
     const updatedDetails = {
-        description: description
+        description: description,
+        assignedTo: assignedUids // Füge Zuweisungen hinzu
     };
 
     try {
@@ -269,7 +397,7 @@ export async function handleSaveEditedTask() {
     }
 }
 
-// GEÄNDERT: Verwendet deleteTaskAction
+// (handleDeleteTask und Settings Modal Actions bleiben unverändert)
 export async function handleDeleteTask() {
     const taskId = document.getElementById('edit-task-id').value;
     const task = state.tasks.find(t => t.id === taskId);
@@ -281,9 +409,6 @@ export async function handleDeleteTask() {
         renderApp();
     }
 }
-
-
-// --- Settings Modal Actions & Andere UI Funktionen (Unverändert) ---
 
 export function openModal() {
     modalState.tempSettings = JSON.parse(JSON.stringify(state.settings));
