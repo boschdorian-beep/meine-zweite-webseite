@@ -7,48 +7,43 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <style>
-        /* Custom styles - Muss hier bleiben wegen Tailwind CDN Nutzung von @apply */
+        /* Custom styles */
         body {
             font-family: 'Inter', sans-serif;
-            @apply bg-gray-100 flex justify-center items-start min-h-screen p-6;
+            /* Zentriert Inhalt für Login/Loading screens */
+            @apply bg-gray-100 flex justify-center items-center min-h-screen p-6;
+        }
+        /* NEU: Klasse, um das Layout für die App-Ansicht anzupassen (oben ausgerichtet) */
+        body.app-layout {
+             @apply items-start;
         }
 
-        /* Basic styling for task items */
+        /* (Restliches CSS bleibt identisch zur vorherigen Version) */
         .task-item {
             @apply flex items-center justify-between bg-white p-4 rounded-lg shadow-sm mb-3;
-            /* Cursor wird dynamisch durch JS/Tailwind Klassen gesteuert (grab/default) */
         }
         .task-item.completed {
             @apply line-through text-gray-500 bg-gray-100;
         }
-
-        /* NEU: Style für überfällige Aufgaben */
         .task-item.overdue {
             @apply border-2 border-red-400 bg-red-50;
         }
-
-        /* Styling for dragged item */
         .task-item.dragging {
             @apply opacity-50 border-2 border-dashed border-blue-400;
             cursor: grabbing;
         }
-        /* Styling for drop target indicators */
         .task-item.drag-over-top {
             @apply border-t-4 border-blue-500;
         }
         .task-item.drag-over-bottom {
             @apply border-b-4 border-blue-500;
         }
-
-        /* NEU: Styling für Drop Zones */
         .drop-zone {
              @apply min-h-[50px] transition-colors duration-200 p-1;
         }
         .drop-zone.drag-over-zone {
             @apply bg-blue-100 rounded-lg;
         }
-
-        /* Modal Styling */
         .remove-timeslot-btn {
             @apply text-red-500 hover:text-red-700 w-6 h-6 flex items-center justify-center rounded-full;
         }
@@ -67,7 +62,35 @@
     </style>
 </head>
 <body class="bg-gray-100 font-inter">
-    <div class="container bg-white rounded-lg shadow-xl p-8 max-w-3xl w-full">
+
+    <div id="loading-spinner" class="text-center">
+        <div class="animate-spin rounded-full h-16 w-16 border-b-4 border-green-600 mx-auto mb-4"></div>
+        <p class="text-gray-600">Verbinde und prüfe Login...</p>
+    </div>
+
+    <div id="auth-container" class="hidden container bg-white rounded-lg shadow-xl p-8 max-w-md w-full">
+        <h1 class="text-3xl font-bold text-gray-800 mb-6 text-center">Willkommen beim Zeitplan</h1>
+        
+        <div id="login-view">
+            <h2 class="text-xl font-semibold mb-4">Login</h2>
+            <input type="email" id="login-email" placeholder="E-Mail Adresse" class="w-full p-3 mb-4 border border-gray-300 rounded-lg focus:ring-green-500 focus:border-green-500">
+            <input type="password" id="login-password" placeholder="Passwort" class="w-full p-3 mb-4 border border-gray-300 rounded-lg focus:ring-green-500 focus:border-green-500">
+            <button id="login-btn" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 rounded-lg shadow-md transition duration-300 mb-4">Anmelden</button>
+            <p class="text-center text-gray-600">Noch kein Konto? <a href="#" id="show-register" class="text-blue-600 hover:underline">Registrieren</a></p>
+        </div>
+
+        <div id="register-view" class="hidden">
+            <h2 class="text-xl font-semibold mb-4">Registrieren</h2>
+            <input type="email" id="register-email" placeholder="E-Mail Adresse" class="w-full p-3 mb-4 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
+            <input type="password" id="register-password" placeholder="Passwort (min. 6 Zeichen)" class="w-full p-3 mb-4 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
+            <button id="register-btn" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg shadow-md transition duration-300 mb-4">Konto erstellen</button>
+            <p class="text-center text-gray-600">Bereits registriert? <a href="#" id="show-login" class="text-green-600 hover:underline">Anmelden</a></p>
+        </div>
+        <p id="auth-error" class="text-red-500 mt-4 text-center"></p>
+    </div>
+
+
+    <div id="app-container" class="hidden container bg-white rounded-lg shadow-xl p-8 max-w-3xl w-full">
         <div class="flex justify-between items-center mb-8">
             <h1 class="text-3xl font-bold text-gray-800">Meine To-Do-Liste</h1>
             <div class="flex items-center space-x-4">
@@ -75,8 +98,11 @@
                     <input type="checkbox" id="toggleDragDrop" class="form-checkbox h-5 w-5 text-blue-600 rounded mr-2">
                     Manuell Sortieren
                 </label>
-                <button id="settingsBtn" class="bg-gray-600 hover:bg-gray-700 text-white font-semibold py-2 px-6 rounded-lg shadow-md transition duration-300 ease-in-out">
-                    Einstellungen
+                <button id="settingsBtn" class="bg-gray-600 hover:bg-gray-700 text-white font-semibold py-2 px-4 rounded-lg shadow-md transition duration-300 ease-in-out" title="Einstellungen">
+                    <i class="fas fa-cog"></i>
+                </button>
+                <button id="logout-btn" class="bg-red-500 hover:bg-red-600 text-white font-semibold py-2 px-4 rounded-lg shadow-md transition duration-300 ease-in-out" title="Logout">
+                    <i class="fas fa-sign-out-alt"></i>
                 </button>
             </div>
         </div>
@@ -208,7 +234,7 @@
                 <input type="text" id="edit-description" class="w-full p-3 border border-gray-300 rounded-lg">
             </div>
 
-            <div id="editVorteilDauerInputs" class="edit-inputs mb-6 hidden">
+             <div id="editVorteilDauerInputs" class="edit-inputs mb-6 hidden">
                 <div class="mb-4">
                     <label for="edit-estimated-duration" class="block text-gray-700 text-sm font-bold mb-2">Geschätzte Dauer (Stunden):</label>
                     <input type="number" id="edit-estimated-duration" min="0.1" step="0.1" class="w-full p-3 border border-gray-300 rounded-lg">
