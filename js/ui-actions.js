@@ -1,8 +1,8 @@
 // js/ui-actions.js
 import { state } from './state.js';
 import { WEEKDAYS } from './config.js';
-// GEÄNDERT: Funktionen sind jetzt async
-import { toggleTaskCompleted, handleTaskDrop, updateTaskDetails, getOriginalTotalDuration } from './scheduler.js';
+// GEÄNDERT: Importiere deleteTaskAction
+import { toggleTaskCompleted, handleTaskDrop, updateTaskDetails, getOriginalTotalDuration, deleteTaskAction } from './scheduler.js';
 import { renderApp, renderSettingsModal } from './ui-render.js';
 import { parseDateString } from './utils.js';
 
@@ -14,7 +14,7 @@ let modalState = {
 // --- Task Interactions ---
 
 export function attachTaskInteractions() {
-    // (Logik identisch zur vorherigen Version)
+    // (Setup Logik unverändert)
     // Checkbox handling
     document.querySelectorAll('.task-checkbox').forEach(checkbox => {
         checkbox.removeEventListener('change', handleCheckboxChange);
@@ -53,26 +53,28 @@ export function attachTaskInteractions() {
     });
 }
 
-// GEÄNDERT: Ist jetzt async
+// GEÄNDERT: Nutzt data-task-id
 async function handleCheckboxChange(event) {
-    const taskId = event.target.dataset.id;
-    // toggleTaskCompleted ist jetzt async
+    // Die ID kommt jetzt direkt vom Checkbox-Attribut (das in ui-render.js gesetzt wird)
+    const taskId = event.target.dataset.taskId;
     await toggleTaskCompleted(taskId, event.target.checked);
     renderApp();
 }
 
 // --- Drag and Drop Handlers ---
 
-// (handleDragStart, handleDragOver, handleDragLeaveZone - Unverändert)
+// GEÄNDERT: Nutzt data-task-id
 function handleDragStart(e) {
     state.draggedItem = e.target;
     e.dataTransfer.effectAllowed = 'move';
+    // Wir übertragen die Task ID (die ID der Definition)
     e.dataTransfer.setData('text/plain', state.draggedItem.dataset.taskId);
     setTimeout(() => {
         state.draggedItem.classList.add('dragging');
     }, 0);
 }
 
+// (handleDragOver, handleDragLeaveZone unverändert)
 function handleDragOver(e) {
     e.preventDefault();
     const zone = e.currentTarget;
@@ -102,28 +104,30 @@ function handleDragLeaveZone(e) {
 }
 
 
-// GEÄNDERT: Ist jetzt async
+// GEÄNDERT: Angepasst an Task IDs
 async function handleDrop(e) {
     e.preventDefault();
     if (!state.draggedItem) return;
 
-    const zone = e.currentTarget;
     const dropTargetItem = e.target.closest('.task-item');
-    const draggedId = state.draggedItem.dataset.taskId;
+    // Wir lesen die Task ID aus dem gezogenen Element
+    const draggedTaskId = state.draggedItem.dataset.taskId;
 
-    let dropTargetId = null;
+    let dropTargetTaskId = null;
     let insertBefore = false;
 
     // 1. Bestimme Zielposition
     if (dropTargetItem && dropTargetItem !== state.draggedItem) {
-        dropTargetId = dropTargetItem.dataset.taskId;
+        // Wir benötigen die Task ID des Ziels für die Neusortierung in state.tasks
+        dropTargetTaskId = dropTargetItem.dataset.taskId;
         const rect = dropTargetItem.getBoundingClientRect();
         const offsetY = e.clientY - rect.top;
         insertBefore = offsetY < rect.height / 2;
     }
 
-    // 2. Bestimme Zieldatum (Logik unverändert)
+    // 2. Bestimme Zieldatum (Logik unverändert, aber angepasst an neue Struktur)
     let newDate = null;
+    const zone = e.currentTarget;
     const section = zone.closest('[data-date-offset]');
     if (section) {
         const offset = parseInt(section.dataset.dateOffset, 10);
@@ -133,9 +137,13 @@ async function handleDrop(e) {
         }
         if (offset === 2) {
             if (dropTargetItem) {
-                 const targetTask = state.tasks.find(t => t.id === dropTargetId);
-                 if (targetTask && targetTask.plannedDate) {
-                    newDate = parseDateString(targetTask.plannedDate);
+                 // Finde das Zieldatum basierend auf dem Schedule Item des Ziels
+                 const targetScheduleId = dropTargetItem.dataset.scheduleId;
+                 // Wir müssen im Schedule suchen, da das Datum dort steht
+                 const targetScheduleItem = state.schedule.find(s => s.scheduleId === targetScheduleId);
+
+                 if (targetScheduleItem && targetScheduleItem.plannedDate) {
+                    newDate = parseDateString(targetScheduleItem.plannedDate);
                  }
             }
             if (!newDate) {
@@ -146,17 +154,16 @@ async function handleDrop(e) {
     }
 
     // Logik im Scheduler ausführen (async)
-    const success = await handleTaskDrop(draggedId, dropTargetId, insertBefore, newDate);
+    const success = await handleTaskDrop(draggedTaskId, dropTargetTaskId, insertBefore, newDate);
 
-    // Nur rendern, wenn die Aktion erfolgreich war (z.B. nicht abgebrochen wurde)
     if (success) {
         renderApp();
     }
     handleDragEnd(); // Clean up
 }
 
+// (handleDragEnd unverändert)
 function handleDragEnd() {
-    // (Unverändert)
     if (state.draggedItem) {
         state.draggedItem.classList.remove('dragging');
     }
@@ -172,46 +179,42 @@ function handleDragEnd() {
 
 // --- Edit Modal Actions ---
 
+// GEÄNDERT: Nutzt data-task-id
 function handleTaskContentClick(event) {
     const taskId = event.target.closest('.task-item').dataset.taskId;
     openEditModal(taskId);
 }
 
+// GEÄNDERT: Lädt Daten aus state.tasks (Definitionen)
 export function openEditModal(taskId) {
-    // (Logik unverändert zur vorherigen Version)
+    // Finde die Originalaufgabe in state.tasks
     const task = state.tasks.find(t => t.id === taskId);
     if (!task) return;
 
-    const originalId = task.originalId || task.id;
-    const representativeTask = state.tasks.find(t => (t.originalId || t.id) === originalId);
-    if (!representativeTask) return;
+    // Befülle das Modal
+    document.getElementById('edit-task-id').value = task.id;
+    document.getElementById('edit-task-type').value = task.type;
+    document.getElementById('edit-description').value = task.description;
 
-    // Wir verwenden die ID des Tasks selbst (die Firestore ID)
-    document.getElementById('edit-task-id').value = representativeTask.id; 
-    document.getElementById('edit-task-type').value = representativeTask.type;
-
-    let cleanDescription = representativeTask.description.replace(/ \(Teil \d+\)$/, '');
-    cleanDescription = cleanDescription.replace(/ \(Nicht planbar - Keine Kapazität\)$/, '');
-    document.getElementById('edit-description').value = cleanDescription;
-
+    // Verstecke alle Input-Gruppen
     document.querySelectorAll('.edit-inputs').forEach(el => el.classList.add('hidden'));
 
-    if (representativeTask.type === 'Vorteil & Dauer') {
+    // Zeige relevante Inputs und befülle sie
+    if (task.type === 'Vorteil & Dauer') {
         document.getElementById('editVorteilDauerInputs').classList.remove('hidden');
-        document.getElementById('edit-estimated-duration').value = getOriginalTotalDuration(representativeTask);
-        document.getElementById('edit-financial-benefit').value = representativeTask.financialBenefit || '';
-    } else if (representativeTask.type === 'Deadline') {
+        document.getElementById('edit-estimated-duration').value = getOriginalTotalDuration(task);
+        document.getElementById('edit-financial-benefit').value = task.financialBenefit || '';
+    } else if (task.type === 'Deadline') {
         document.getElementById('editDeadlineInputs').classList.remove('hidden');
-        document.getElementById('edit-deadline-date').value = representativeTask.deadlineDate || '';
-        document.getElementById('edit-deadline-duration').value = getOriginalTotalDuration(representativeTask);
-    } else if (representativeTask.type === 'Fixer Termin') {
+        document.getElementById('edit-deadline-date').value = task.deadlineDate || '';
+        document.getElementById('edit-deadline-duration').value = getOriginalTotalDuration(task);
+    } else if (task.type === 'Fixer Termin') {
         document.getElementById('editFixerTerminInputs').classList.remove('hidden');
-        document.getElementById('edit-fixed-date').value = representativeTask.fixedDate || '';
-        document.getElementById('edit-fixed-duration').value = getOriginalTotalDuration(representativeTask);
+        document.getElementById('edit-fixed-date').value = task.fixedDate || '';
+        document.getElementById('edit-fixed-duration').value = getOriginalTotalDuration(task);
     }
 
-     // HINWEIS: Hier wird später die Zuweisung gerendert (Phase 2)
-
+    // Zeige das Modal
     const modal = document.getElementById('editTaskModal');
     modal.classList.remove('hidden');
     modal.classList.add('flex');
@@ -224,9 +227,8 @@ export function closeEditModal() {
     modal.classList.remove('flex');
 }
 
-// GEÄNDERT: Ist jetzt async
+// (handleSaveEditedTask Logik unverändert, aber async)
 export async function handleSaveEditedTask() {
-    // Wir verwenden die ID des Tasks, die wir im Modal gespeichert haben
     const taskId = document.getElementById('edit-task-id').value;
     const type = document.getElementById('edit-task-type').value;
     const description = document.getElementById('edit-description').value.trim();
@@ -239,8 +241,6 @@ export async function handleSaveEditedTask() {
     const updatedDetails = {
         description: description
     };
-
-    // HINWEIS: Hier wird später die Zuweisung gelesen (Phase 2)
 
     try {
         if (type === 'Vorteil & Dauer') {
@@ -269,36 +269,24 @@ export async function handleSaveEditedTask() {
     }
 }
 
-// GEÄNDERT: Ist jetzt async
+// GEÄNDERT: Verwendet deleteTaskAction
 export async function handleDeleteTask() {
     const taskId = document.getElementById('edit-task-id').value;
     const task = state.tasks.find(t => t.id === taskId);
-    let taskName = task ? task.description.replace(/ \(Teil \d+\)$/, '') : "diese Aufgabe";
+    let taskName = task ? task.description : "diese Aufgabe";
 
-    if (confirm(`Möchtest du "${taskName}" (und alle ihre Teile) wirklich löschen?`)) {
-        // Finde die Original-ID, um alle Teile zu löschen
-        const originalId = task ? (task.originalId || task.id) : null;
-
-        if (originalId) {
-             // Entferne alle Instanzen dieser Aufgabe aus dem lokalen State
-            state.tasks = state.tasks.filter(t => (t.originalId || t.id) !== originalId);
-        }
-       
-        // Muss neu geplant werden (async). Wir übergeben null.
-        await updateTaskDetails(null, {});
+    if (confirm(`Möchtest du "${taskName}" wirklich löschen?`)) {
+        await deleteTaskAction(taskId);
         closeEditModal();
         renderApp();
     }
 }
 
 
-// --- Settings Modal Actions & Andere UI Funktionen (Unverändert zur vorherigen Version) ---
-// (openModal, closeModal, updateAndGetSettingsFromModal, attachModalEventListeners, handleTimeslotAction, setActiveTaskType, clearInputs)
+// --- Settings Modal Actions & Andere UI Funktionen (Unverändert) ---
 
 export function openModal() {
-    // (Unverändert)
     modalState.tempSettings = JSON.parse(JSON.stringify(state.settings));
-
     renderSettingsModal(modalState.tempSettings);
     const modal = document.getElementById('settingsModal');
     modal.classList.remove('hidden');
@@ -307,7 +295,6 @@ export function openModal() {
 }
 
 export function closeModal() {
-    // (Unverändert)
     const modal = document.getElementById('settingsModal');
     modal.classList.add('hidden');
     modal.classList.remove('flex');
@@ -315,7 +302,6 @@ export function closeModal() {
 }
 
 export function updateAndGetSettingsFromModal() {
-    // (Unverändert)
     modalState.tempSettings.calcPriority = document.getElementById('calcPriorityCheckbox').checked;
 
     WEEKDAYS.forEach(dayName => {
@@ -344,14 +330,12 @@ export function updateAndGetSettingsFromModal() {
 }
 
 function attachModalEventListeners() {
-    // (Unverändert)
     const container = document.getElementById('dailyTimeslotsContainer');
     container.removeEventListener('click', handleTimeslotAction);
     container.addEventListener('click', handleTimeslotAction);
 }
 
 function handleTimeslotAction(event) {
-    // (Unverändert)
     const target = event.target;
     const day = target.dataset.day;
 
@@ -385,7 +369,6 @@ function handleTimeslotAction(event) {
 }
 
 export function setActiveTaskType(button) {
-    // (Unverändert)
     document.querySelectorAll('.task-type-btn').forEach(btn => {
         btn.classList.remove('bg-green-500', 'text-white');
         btn.classList.add('text-gray-700', 'hover:bg-gray-300');
@@ -406,7 +389,6 @@ export function setActiveTaskType(button) {
 }
 
 export function clearInputs() {
-    // (Unverändert)
     document.getElementById('newTaskInput').value = '';
     document.getElementById('estimated-duration').value = '1';
     document.getElementById('monthly-financial-benefit').value = '';
