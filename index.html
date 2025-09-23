@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Meine To-Do-Liste</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <style>
         /* Custom styles - Muss hier bleiben wegen Tailwind CDN Nutzung von @apply */
         body {
@@ -15,16 +16,21 @@
         /* Basic styling for task items */
         .task-item {
             @apply flex items-center justify-between bg-white p-4 rounded-lg shadow-sm mb-3;
-            cursor: grab;
+            /* Cursor wird dynamisch durch JS/Tailwind Klassen gesteuert (grab/default) */
         }
         .task-item.completed {
-            @apply line-through text-gray-500;
-            cursor: default;
+            @apply line-through text-gray-500 bg-gray-100;
         }
+
+        /* NEU: Style für überfällige Aufgaben */
+        .task-item.overdue {
+            @apply border-2 border-red-400 bg-red-50;
+        }
+
         /* Styling for dragged item */
         .task-item.dragging {
             @apply opacity-50 border-2 border-dashed border-blue-400;
-            cursor: grabbing; /* GEÄNDERT: Bessere UX beim Ziehen */
+            cursor: grabbing;
         }
         /* Styling for drop target indicators */
         .task-item.drag-over-top {
@@ -33,17 +39,24 @@
         .task-item.drag-over-bottom {
             @apply border-b-4 border-blue-500;
         }
-        /* Styling for remove timeslot button */
+
+        /* NEU: Styling für Drop Zones */
+        .drop-zone {
+             @apply min-h-[50px] transition-colors duration-200 p-1;
+        }
+        .drop-zone.drag-over-zone {
+            @apply bg-blue-100 rounded-lg;
+        }
+
+        /* Modal Styling */
         .remove-timeslot-btn {
             @apply text-red-500 hover:text-red-700 w-6 h-6 flex items-center justify-center rounded-full;
         }
-        /* Specific styling for daily timeslots container in modal */
         #dailyTimeslotsContainer {
             max-height: 400px;
             overflow-y: auto;
             @apply pr-2;
         }
-        /* Style for day sections in settings */
         .day-section {
             @apply bg-gray-100 p-4 rounded-lg shadow-inner;
             margin-bottom: 1rem;
@@ -57,9 +70,15 @@
     <div class="container bg-white rounded-lg shadow-xl p-8 max-w-3xl w-full">
         <div class="flex justify-between items-center mb-8">
             <h1 class="text-3xl font-bold text-gray-800">Meine To-Do-Liste</h1>
-            <button id="settingsBtn" class="bg-gray-600 hover:bg-gray-700 text-white font-semibold py-2 px-6 rounded-lg shadow-md transition duration-300 ease-in-out">
-                Einstellungen
-            </button>
+            <div class="flex items-center space-x-4">
+                <label class="flex items-center text-gray-700 cursor-pointer">
+                    <input type="checkbox" id="toggleDragDrop" class="form-checkbox h-5 w-5 text-blue-600 rounded mr-2">
+                    Manuell Sortieren
+                </label>
+                <button id="settingsBtn" class="bg-gray-600 hover:bg-gray-700 text-white font-semibold py-2 px-6 rounded-lg shadow-md transition duration-300 ease-in-out">
+                    Einstellungen
+                </button>
+            </div>
         </div>
 
         <div class="flex mb-6 space-x-4">
@@ -114,27 +133,39 @@
             </div>
         </div>
 
-        <div class="bg-gray-50 rounded-lg p-6 shadow-sm border border-gray-200 mb-6 border-l-8 border-emerald-500">
+        <div data-date-offset="0" class="bg-gray-50 rounded-lg p-6 shadow-sm border border-gray-200 mb-6 border-l-8 border-emerald-500">
             <h2 class="text-2xl font-semibold text-gray-800 mb-3">Heute</h2>
             <p id="todayAvailableTime" class="text-gray-600 mb-2">Verfügbare Zeit: 0h 0min</p>
-            <div id="todayTasksList" class="mt-4">
+            <div id="todayTasksList" class="mt-4 drop-zone">
                 <p id="noTodayTasks" class="text-gray-600 italic">Keine Aufgaben für diesen Tag geplant.</p>
             </div>
         </div>
 
-        <div class="bg-gray-50 rounded-lg p-6 shadow-sm border border-gray-200 mb-6 border-l-8 border-cyan-400">
-            <h2 class="text-2xl font-semibold text-gray-800 mb-3">Morgen</h2>
+        <div data-date-offset="1" class="bg-gray-50 rounded-lg p-6 shadow-sm border border-gray-200 mb-6 border-l-8 border-cyan-400">
+             <h2 class="text-2xl font-semibold text-gray-800 mb-3">Morgen</h2>
             <p id="tomorrowAvailableTime" class="text-gray-600 mb-2">Verfügbare Zeit: 0h 0min</p>
-            <div id="tomorrowTasksList" class="mt-4">
+            <div id="tomorrowTasksList" class="mt-4 drop-zone">
                 <p id="noTomorrowTasks" class="text-gray-600 italic">Keine Aufgaben für diesen Tag geplant.</p>
             </div>
         </div>
 
-        <div class="bg-gray-50 rounded-lg p-6 shadow-sm border border-gray-200 border-l-8 border-gray-300">
+        <div data-date-offset="2" class="bg-gray-50 rounded-lg p-6 shadow-sm border border-gray-200 mb-6 border-l-8 border-gray-300">
             <h2 class="text-2xl font-semibold text-gray-800 mb-3">Zukünftige Aufgaben</h2>
             <p id="futureAvailableTime" class="text-gray-600 mb-2">Verfügbare Zeit: 0h 0min</p>
-            <div id="futureTasksList" class="mt-4">
+            <div id="futureTasksList" class="mt-4 drop-zone">
                 <p id="noFutureTasks" class="text-gray-600 italic">Keine Aufgaben für diesen Bereich geplant.</p>
+            </div>
+        </div>
+
+        <div class="bg-gray-100 rounded-lg p-6 shadow-inner border border-gray-200 mt-8">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-xl font-semibold text-gray-600">Erledigt</h2>
+                <button id="clearCompletedBtn" class="text-sm text-red-500 hover:text-red-700 font-medium focus:outline-none">
+                    Alle erledigten löschen
+                </button>
+            </div>
+            <div id="completedTasksList" class="mt-4">
+                <p id="noCompletedTasks" class="text-gray-500 italic">Noch keine Aufgaben erledigt.</p>
             </div>
         </div>
     </div>
@@ -144,18 +175,12 @@
             <span id="closeModalBtn" class="absolute top-4 right-6 text-gray-500 text-4xl leading-none cursor-pointer hover:text-gray-800">&times;</span>
             <h2 class="text-3xl font-bold text-gray-800 mb-6 border-b pb-4">Einstellungen</h2>
 
-            <div class="mb-5">
-                <label class="flex items-center text-gray-700 text-lg cursor-pointer">
-                    <input type="checkbox" id="calcPriorityCheckbox" class="form-checkbox h-5 w-5 text-green-600 rounded mr-3">
-                    Priorität nach finanziellem Vorteil / Deadline berechnen
-                </label>
-            </div>
-
             <div class="mb-6">
                 <label class="flex items-center text-gray-700 text-lg cursor-pointer">
-                    <input type="checkbox" id="autoPriorityCheckbox" class="form-checkbox h-5 w-5 text-green-600 rounded mr-3">
-                    Prioritäten automatisch setzen (Deaktiviert Drag & Drop)
+                    <input type="checkbox" id="calcPriorityCheckbox" class="form-checkbox h-5 w-5 text-green-600 rounded mr-3">
+                    Priorität nach finanziellem Vorteil berechnen
                 </label>
+                <p class="text-sm text-gray-500 ml-8 mt-1">(Beeinflusst die Sortierung, wenn "Manuell Sortieren" deaktiviert ist)</p>
             </div>
 
             <div class="mb-8">
@@ -167,6 +192,63 @@
             <button id="saveSettingsBtn" class="bg-green-600 hover:bg-green-700 text-white font-bold py-4 px-8 rounded-lg shadow-lg w-full transition duration-300 ease-in-out">
                 Einstellungen speichern
             </button>
+        </div>
+    </div>
+
+    <div id="editTaskModal" class="hidden fixed inset-0 bg-black bg-opacity-40 items-center justify-center p-4">
+        <div class="modal-content bg-white rounded-xl shadow-2xl p-8 w-full max-w-lg relative">
+            <span id="closeEditModalBtn" class="absolute top-4 right-6 text-gray-500 text-4xl leading-none cursor-pointer hover:text-gray-800">&times;</span>
+            <h2 class="text-3xl font-bold text-gray-800 mb-6 border-b pb-4">Aufgabe bearbeiten</h2>
+
+            <input type="hidden" id="edit-task-id">
+            <input type="hidden" id="edit-task-type">
+
+            <div class="mb-6">
+                <label for="edit-description" class="block text-gray-700 text-sm font-bold mb-2">Beschreibung:</label>
+                <input type="text" id="edit-description" class="w-full p-3 border border-gray-300 rounded-lg">
+            </div>
+
+            <div id="editVorteilDauerInputs" class="edit-inputs mb-6 hidden">
+                <div class="mb-4">
+                    <label for="edit-estimated-duration" class="block text-gray-700 text-sm font-bold mb-2">Geschätzte Dauer (Stunden):</label>
+                    <input type="number" id="edit-estimated-duration" min="0.1" step="0.1" class="w-full p-3 border border-gray-300 rounded-lg">
+                </div>
+                <div>
+                    <label for="edit-financial-benefit" class="block text-gray-700 text-sm font-bold mb-2">Monatlicher Finanzvorteil (€):</label>
+                    <input type="text" id="edit-financial-benefit" class="w-full p-3 border border-gray-300 rounded-lg">
+                </div>
+            </div>
+
+            <div id="editDeadlineInputs" class="edit-inputs mb-6 hidden">
+                <div class="mb-4">
+                    <label for="edit-deadline-date" class="block text-gray-700 text-sm font-bold mb-2">Deadline Datum:</label>
+                    <input type="date" id="edit-deadline-date" class="w-full p-3 border border-gray-300 rounded-lg">
+                </div>
+                <div>
+                    <label for="edit-deadline-duration" class="block text-gray-700 text-sm font-bold mb-2">Dauer (Stunden):</label>
+                    <input type="number" id="edit-deadline-duration" min="0.1" step="0.1" class="w-full p-3 border border-gray-300 rounded-lg">
+                </div>
+            </div>
+
+            <div id="editFixerTerminInputs" class="edit-inputs mb-6 hidden">
+                 <div class="mb-4">
+                    <label for="edit-fixed-date" class="block text-gray-700 text-sm font-bold mb-2">Datum des Termins:</label>
+                    <input type="date" id="edit-fixed-date" class="w-full p-3 border border-gray-300 rounded-lg">
+                </div>
+                <div>
+                    <label for="edit-fixed-duration" class="block text-gray-700 text-sm font-bold mb-2">Dauer (Stunden):</label>
+                    <input type="number" id="edit-fixed-duration" min="0.1" step="0.1" class="w-full p-3 border border-gray-300 rounded-lg">
+                </div>
+            </div>
+
+            <div class="flex justify-between">
+                <button id="deleteTaskBtn" class="bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-6 rounded-lg shadow-md transition duration-300 ease-in-out">
+                    Löschen
+                </button>
+                <button id="saveTaskBtn" class="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-lg shadow-md transition duration-300 ease-in-out">
+                    Speichern & Neu planen
+                </button>
+            </div>
         </div>
     </div>
 
