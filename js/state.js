@@ -1,5 +1,4 @@
 // js/state.js
-
 /**
  * Centralized state management.
  */
@@ -12,7 +11,7 @@ export const state = {
     activeTaskType: 'Vorteil & Dauer',
     draggedItem: null,
     
-    // NEU: Zustand für die Filterleiste
+    // Zustand für die Filterleiste (Phase 2)
     filters: {
         prioritizedLocation: null, // String des Ortsnamens
         prioritizedUsers: [],      // Array von UIDs der ausgewählten Benutzer
