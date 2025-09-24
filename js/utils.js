@@ -3,26 +3,36 @@ import { WEEKDAYS } from './config.js';
 
 /**
  * Formats a float number of hours into HHh MMmin format.
+ * GEÄNDERT: Verbesserte Logik und Formatierung.
  */
 export function formatHoursMinutes(totalHours) {
     // Ensure non-negative time
     const safeHours = Math.max(0, totalHours);
-    let hours = Math.floor(safeHours);
-    let minutes = Math.round((safeHours - hours) * 60);
+    
+    // Berechne Gesamtminuten für Präzision und Rundung
+    const totalMinutes = Math.round(safeHours * 60);
+    
+    if (totalMinutes === 0) return "0min";
 
-    // Handle rounding up to 60 minutes
-    if (minutes === 60) {
-        hours += 1;
-        minutes = 0;
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+
+    // Intelligenteres Format (z.B. 1h 30min, 1h, 45min)
+    if (hours > 0 && minutes > 0) {
+        return `${hours}h ${minutes}min`;
+    } else if (hours > 0) {
+        return `${hours}h`;
+    } else {
+        return `${minutes}min`;
     }
-    return `${hours}h ${minutes}min`;
 }
 
 /**
  * Converts Date object to a YYYY-MM-DD string (local time).
  */
 export function formatDateToYYYYMMDD(date) {
-    if (!date) return null;
+    // GEÄNDERT: Zusätzliche Prüfung auf gültiges Datum
+    if (!date || !(date instanceof Date) || isNaN(date.getTime())) return null;
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const day = String(date.getDate()).padStart(2, '0');
@@ -60,4 +70,44 @@ export function parseDateString(dateString) {
         return new Date(year, monthIndex, day, 0, 0, 0, 0);
     }
     return null;
+}
+
+// NEU: Hilfsfunktionen für Zeitumrechnung und Visualisierung
+
+/**
+ * NEU: Converts hours and minutes inputs (Strings) into a single decimal hours value.
+ */
+export function calculateDecimalHours(hoursInput, minutesInput) {
+    const hours = parseInt(hoursInput, 10) || 0;
+    const minutes = parseInt(minutesInput, 10) || 0;
+    
+    // Wir prüfen hier nicht auf max 59 Minuten, da der User evtl. 90 Minuten eingeben möchte, 
+    // aber wir verhindern negative Zahlen.
+    if (hours < 0 || minutes < 0) return 0;
+
+    // Wir speichern intern weiterhin als Dezimalstunden, um die Scheduler-Logik nicht zu ändern.
+    return hours + (minutes / 60);
+}
+
+/**
+ * NEU: Generiert eine konsistente Farbe basierend auf einem String (für Orte).
+ * Nutzt HSL für angenehmere Farben.
+ */
+export function generateColorFromString(str) {
+    if (!str) return 'transparent';
+
+    // Einfacher Hash-Algorithmus
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+        hash = str.charCodeAt(i) + ((hash << 5) - hash);
+        hash = hash & hash; // Konvertiere zu 32bit Integer
+    }
+    
+    // Generiere Hue (0-360), Saturation (60-80%), Lightness (45%)
+    // Nutze Math.abs, da der Hash negativ sein kann.
+    const h = Math.abs(hash) % 360;
+    const s = 60 + (Math.abs(hash) % 20); // Sorgt für kräftige Farben
+    const l = 45; // Etwas dunkler für besseren Kontrast auf Weiß
+
+    return `hsl(${h}, ${s}%, ${l}%)`;
 }
