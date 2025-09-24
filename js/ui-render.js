@@ -6,7 +6,7 @@ import { formatHoursMinutes, formatDateToYYYYMMDD, normalizeDate, parseDateStrin
 import { getScheduleItemDuration, getDailyAvailableHours, getOriginalTotalDuration } from './scheduler.js';
 import { attachTaskInteractions } from './ui-actions.js';
 // NEU: Importiere getShortNamesForUids
-import { getShortNamesForUids } from './collaboration.js';
+import { getShortNamesForUids, getAllUserProfilesInTasks } from './collaboration.js';
 
 // (Element Caching unverändert)
 const elements = {
@@ -25,12 +25,21 @@ const elements = {
     calcPriorityCheckbox: document.getElementById('calcPriorityCheckbox'),
     toggleDragDrop: document.getElementById('toggleDragDrop'),
 };
+// NEU: Elemente für die Filterleiste
+const filterElements = {
+    filterBar: document.getElementById('filter-bar'),
+    locationFilters: document.getElementById('location-filters'),
+    userFilters: document.getElementById('user-filters'),
+    clearFiltersBtn: document.getElementById('clear-filters-btn'),
+    filterActiveMessage: document.getElementById('filter-active-message'),
+};
 
 // GEÄNDERT: Muss async sein, da renderSchedule() und renderCompletedTasks() jetzt async sind
 export async function renderApp() {
     // Rendere Schedule (lädt asynchron die Benutzerkürzel)
     await renderSchedule();
     await renderCompletedTasks();
+    await renderFilterBar(); // NEU: Filterleiste rendern
     updateAvailableTimeDisplays();
     // (Toggle State Update unverändert)
     if (elements.toggleDragDrop) {
@@ -38,6 +47,79 @@ export async function renderApp() {
     }
     // Interaktionen müssen nach dem Rendern angehängt werden
     attachTaskInteractions();
+}
+
+/**
+ * NEU: Rendert die Filterleiste basierend auf den aktuellen Aufgaben.
+ */
+async function renderFilterBar() {
+    const activeTasks = state.tasks.filter(t => !t.completed);
+
+    // 1. Orte sammeln
+    const allLocations = [...new Set(activeTasks.map(t => t.location).filter(Boolean))].sort();
+
+    // 2. Teammitglieder sammeln
+    const allUsers = await getAllUserProfilesInTasks();
+
+    // Verstecke die Leiste, wenn es keine Filteroptionen gibt
+    if (allLocations.length === 0 && allUsers.length === 0) {
+        filterElements.filterBar.classList.add('hidden');
+        return;
+    }
+    filterElements.filterBar.classList.remove('hidden');
+
+    // 3. Filter-Buttons für Orte erstellen
+    filterElements.locationFilters.innerHTML = '';
+    if (allLocations.length > 0) {
+        allLocations.forEach(location => {
+            const isChecked = state.filters.prioritizedLocation === location;
+            const toggleHtml = `
+                <label class="filter-checkbox-label">
+                    <input type="radio" name="location-filter" value="${location}" class="location-filter-radio" ${isChecked ? 'checked' : ''}>
+                    <span class="filter-toggle">${location}</span>
+                </label>
+            `;
+            filterElements.locationFilters.innerHTML += toggleHtml;
+        });
+    } else {
+        filterElements.locationFilters.innerHTML = `<p class="text-sm text-gray-500">Keine Orte in Aufgaben definiert.</p>`;
+    }
+
+    // 4. Filter-Buttons für Benutzer erstellen
+    filterElements.userFilters.innerHTML = '';
+    if (allUsers.length > 0) {
+        allUsers.forEach(user => {
+            const isChecked = state.filters.prioritizedUserIds.includes(user.uid);
+            const toggleHtml = `
+                <label class="filter-checkbox-label">
+                    <input type="checkbox" value="${user.uid}" class="user-filter-checkbox" ${isChecked ? 'checked' : ''}>
+                    <span class="filter-toggle">${user.displayName} (${user.shortName})</span>
+                </label>
+            `;
+            filterElements.userFilters.innerHTML += toggleHtml;
+        });
+    } else {
+        filterElements.userFilters.innerHTML = `<p class="text-sm text-gray-500">Keine Team-Aufgaben vorhanden.</p>`;
+    }
+
+    // 5. Zustand des "Löschen"-Buttons und der Nachricht aktualisieren
+    const isFilterActive = state.filters.prioritizedLocation || state.filters.prioritizedUserIds.length > 0;
+    filterElements.clearFiltersBtn.disabled = !isFilterActive;
+    if (isFilterActive) {
+        filterElements.filterActiveMessage.classList.remove('hidden');
+    } else {
+        filterElements.filterActiveMessage.classList.add('hidden');
+    }
+}
+
+/**
+ * NEU: Prüft, ob ein Schedule-Item den aktiven Filtern entspricht.
+ */
+function isItemPrioritized(item) {
+    const { prioritizedLocation, prioritizedUserIds } = state.filters;
+    const matchesLocation = prioritizedLocation && item.location === prioritizedLocation;
+    const matchesUsers = prioritizedUserIds.length > 0 && prioritizedUserIds.every(uid => (item.assignedTo || []).includes(uid));
+    return matchesLocation || matchesUsers;
 }
 
 /**
@@ -153,6 +235,11 @@ function createScheduleItemElement(item, assignedShortNames = []) {
     // Status Klassen
     if (itemPlannedDate && itemPlannedDate.getTime() < today.getTime()) {
         classes += ' overdue';
+    }
+
+    // NEU: Priorisierungs-Klasse hinzufügen
+    if (isItemPrioritized(item)) {
+        classes += ' prioritized';
     }
 
     // Draggable status & Cursor

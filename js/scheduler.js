@@ -275,60 +275,70 @@ function scheduleFixedTasks(tasks, currentSchedule) {
  * (Logik unverändert)
  */
 export function recalculateSchedule() {
-
-    // 1. Vorbereitung: Wenn Auto-Priorität aktiv ist, entferne alle manuellen Pins.
+    // 1. Vorbereitung
     if (state.settings.autoPriority) {
         state.tasks.forEach(t => {
             t.isManuallyScheduled = false;
             delete t.manualDate;
         });
     }
-
-    // 2. Aufgaben trennen (Nur aktive Aufgaben betrachten)
     const activeTasks = state.tasks.filter(t => !t.completed);
 
-    // 3. Trennen in Fix und Flexibel
-    // Fix = Deadlines, Fixe Termine ODER manuell gepinnte Aufgaben
-    let fixedTasks = activeTasks.filter(t =>
-        t.type === 'Fixer Termin' || t.type === 'Deadline' || t.isManuallyScheduled
-    );
+    // NEU: 2. Aufgaben in priorisierte und andere aufteilen
+    const { prioritizedLocation, prioritizedUserIds } = state.filters;
+    const isFilterActive = prioritizedLocation || prioritizedUserIds.length > 0;
+    const currentUserId = state.user.uid;
 
-    // Flexibel = Vorteilsaufgaben, die nicht manuell gepinnt sind
-    let flexibleTasks = activeTasks.filter(t =>
-        t.type === 'Vorteil & Dauer' && !t.isManuallyScheduled
-    );
+    let prioritizedTasks = [];
+    let otherTasks = [];
 
-    // 4. Berechne Zieldaten für Fixe Aufgaben (setzt tempPlannedDate)
-    fixedTasks = calculateFixedTaskDates(fixedTasks);
+    if (isFilterActive) {
+        activeTasks.forEach(task => {
+            const assignedTo = task.assignedTo || [];
+            // Bedingung 1: Ort stimmt überein
+            const matchesLocation = prioritizedLocation && task.location === prioritizedLocation;
+            // Bedingung 2: Alle ausgewählten User (plus der aktuelle) sind zugewiesen
+            const requiredUsers = [...prioritizedUserIds, currentUserId];
+            const matchesUsers = prioritizedUserIds.length > 0 && requiredUsers.every(uid => assignedTo.includes(uid));
 
-    // 5. Sortiere Fixe Aufgaben nach ihrem berechneten Datum
-    fixedTasks.sort((a, b) => {
-        const dateA = parseDateString(a.tempPlannedDate);
-        const dateB = parseDateString(b.tempPlannedDate);
-        if (!dateA) return 1; // Nicht planbare ans Ende
-        if (!dateB) return -1;
-        return dateA.getTime() - dateB.getTime();
-    });
-
-    // 6. Erstelle den initialen Schedule mit Fixen Aufgaben
-    const newSchedule = [];
-    scheduleFixedTasks(fixedTasks, newSchedule);
-
-    // 7. Sortiere Flexible Aufgaben (nur wenn Auto-Priorität aktiv ist)
-    if (state.settings.autoPriority) {
-        flexibleTasks.sort(sortTasksByPriority);
+            if (matchesLocation || matchesUsers) {
+                prioritizedTasks.push(task);
+            } else {
+                otherTasks.push(task);
+            }
+        });
+    } else {
+        otherTasks = activeTasks;
     }
-    // Hinweis: Wenn Auto-Priorität AUS ist (Manuelles Sortieren AN), wird die Reihenfolge in state.tasks verwendet.
 
-    // 8. Plane Flexible Aufgaben in die Lücken (füllt newSchedule auf)
-    flexibleTasks.forEach(task => {
-        scheduleFlexibleTask(task, newSchedule);
-    });
+    // 3. Planungs-Subroutine
+    const planTaskSet = (tasksToPlan, schedule) => {
+        let fixed = tasksToPlan.filter(t => t.type === 'Fixer Termin' || t.type === 'Deadline' || t.isManuallyScheduled);
+        let flexible = tasksToPlan.filter(t => t.type === 'Vorteil & Dauer' && !t.isManuallyScheduled);
 
-    // 9. Aufräumen (Entferne temporäre Felder)
+        fixed = calculateFixedTaskDates(fixed);
+        fixed.sort((a, b) => {
+            const dateA = parseDateString(a.tempPlannedDate);
+            const dateB = parseDateString(b.tempPlannedDate);
+            if (!dateA) return 1;
+            if (!dateB) return -1;
+            return dateA.getTime() - dateB.getTime();
+        });
+        scheduleFixedTasks(fixed, schedule);
+
+        if (state.settings.autoPriority) {
+            flexible.sort(sortTasksByPriority);
+        }
+        flexible.forEach(task => scheduleFlexibleTask(task, schedule));
+    };
+
+    // 4. Plane zuerst priorisierte, dann die anderen Aufgaben
+    const newSchedule = [];
+    planTaskSet(prioritizedTasks, newSchedule);
+    planTaskSet(otherTasks, newSchedule);
+
+    // 5. Aufräumen und State aktualisieren
     activeTasks.forEach(t => delete t.tempPlannedDate);
-
-    // 10. Aktualisiere den globalen State
     state.schedule = newSchedule;
 }
 

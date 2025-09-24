@@ -8,7 +8,7 @@ import { renderApp, renderSettingsModal } from './ui-render.js';
 // NEU: Importiere Hilfsfunktionen für Zeit und Parsing
 import { parseDateString, calculateDecimalHours } from './utils.js';
 import { searchUsers, getUsersByIds } from './collaboration.js';
-
+ 
 // Temporärer Zustand für Modals.
 let modalState = {
     tempSettings: {},
@@ -19,6 +19,52 @@ let modalState = {
 };
 
 // --- Task Interactions ---
+
+/**
+ * NEU: Hängt Event-Listener an die Filterleiste.
+ */
+export function attachFilterInteractions() {
+    const filterBar = document.getElementById('filter-bar');
+    if (!filterBar) return;
+
+    // Event-Delegation für die gesamte Leiste
+    filterBar.addEventListener('change', async (event) => {
+        const target = event.target;
+
+        // Orts-Filter (Radio-Buttons)
+        if (target.matches('.location-filter-radio')) {
+            // Wenn ein bereits ausgewählter Radio-Button erneut geklickt wird, soll er sich deaktivieren.
+            // Dies ist kein Standardverhalten, daher die manuelle Logik.
+            if (state.filters.prioritizedLocation === target.value) {
+                target.checked = false;
+                state.filters.prioritizedLocation = null;
+            } else {
+                state.filters.prioritizedLocation = target.value;
+            }
+        }
+
+        // Benutzer-Filter (Checkboxes)
+        if (target.matches('.user-filter-checkbox')) {
+            const selectedUids = Array.from(document.querySelectorAll('.user-filter-checkbox:checked')).map(cb => cb.value);
+            state.filters.prioritizedUserIds = selectedUids;
+        }
+
+        // Nach jeder Änderung neu berechnen und rendern
+        recalculateSchedule();
+        await renderApp();
+    });
+
+    // "Filter löschen"-Button
+    const clearBtn = document.getElementById('clear-filters-btn');
+    clearBtn.addEventListener('click', async () => {
+        state.filters.prioritizedLocation = null;
+        state.filters.prioritizedUserIds = [];
+        
+        // Neu berechnen und rendern
+        recalculateSchedule();
+        await renderApp();
+    });
+}
 
 export function attachTaskInteractions() {
     // Checkboxen

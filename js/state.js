@@ -14,6 +14,6 @@ export const state = {
     // Zustand für die Filterleiste (Phase 2)
     filters: {
         prioritizedLocation: null, // String des Ortsnamens
-        prioritizedUsers: [],      // Array von UIDs der ausgewählten Benutzer
+        prioritizedUserIds: [],      // Array von UIDs der ausgewählten Benutzer
     }
 };

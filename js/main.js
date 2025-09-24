@@ -5,8 +5,7 @@ import { recalculateSchedule } from './scheduler.js';
 import { renderApp } from './ui-render.js';
 import {
     openModal, closeModal, setActiveTaskType, clearInputs, updateAndGetSettingsFromModal,
-    closeEditModal, handleSaveEditedTask, handleDeleteTask, handleClearCompleted,
-    // attachFilterInteractions // VORÜBERGEHEND DEAKTIVIERT
+    closeEditModal, handleSaveEditedTask, handleDeleteTask, handleClearCompleted, attachFilterInteractions
 } from './ui-actions.js';
 import { normalizeDate, calculateDecimalHours } from './utils.js';
 import { initializeAuth, showLoadingScreen, showAppScreen } from './auth.js';
@@ -78,8 +77,8 @@ function initializeUI() {
 
     // Attach global event listeners
     attachEventListeners();
-    // VORÜBERGEHEND DEAKTIVIERT: Initialisiere Filter-Interaktionen (Logik in ui-actions.js)
-    // attachFilterInteractions(); 
+    // NEU: Initialisiere Filter-Interaktionen
+    attachFilterInteractions(); 
     startDayChangeChecker();
 }
 
