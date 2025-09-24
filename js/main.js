@@ -5,9 +5,10 @@ import { recalculateSchedule } from './scheduler.js';
 import { renderApp } from './ui-render.js';
 import {
     openModal, closeModal, setActiveTaskType, clearInputs, updateAndGetSettingsFromModal,
-    closeEditModal, handleSaveEditedTask, handleDeleteTask, handleClearCompleted
+    closeEditModal, handleSaveEditedTask, handleDeleteTask, handleClearCompleted,
+    // NEU: Importiere attachFilterInteractions
+    attachFilterInteractions
 } from './ui-actions.js';
-// NEU: Importiere calculateDecimalHours
 import { normalizeDate, calculateDecimalHours } from './utils.js';
 import { initializeAuth, showLoadingScreen, showAppScreen } from './auth.js';
 
@@ -26,9 +27,9 @@ document.addEventListener('DOMContentLoaded', () => {
     initializeAuth(onLoginSuccess);
 });
 
-// 2. Wird aufgerufen, wenn Login erfolgreich war (bei jedem Login/Session Restore)
+// 2. Wird aufgerufen, wenn Login erfolgreich war
 function onLoginSuccess() {
-    // Starte die Daten-Listener. Dies ruft handleDataUpdate auf, sobald Daten verfügbar sind.
+    // Starte die Daten-Listener.
     initializeDataListeners(handleDataUpdate);
 
     if (!isInitialized) {
@@ -36,22 +37,18 @@ function onLoginSuccess() {
         initializeUI();
         isInitialized = true;
     }
-    // Die App wird angezeigt, sobald handleDataUpdate das initiale Laden bestätigt UND das Profil geladen ist (in showAppScreen geprüft).
 }
 
-// 3. Callback für Daten-Updates (Zentraler Punkt für Synchronisation)
-// GEÄNDERT: async, da renderApp async ist
+// 3. Callback für Daten-Updates
 async function handleDataUpdate(type, data) {
-    // console.log(`Handling update for: ${type}`); // Optional für Debugging
-
+    
     if (type === 'tasks') {
         state.tasks = data;
         initialTasksLoaded = true;
     } else if (type === 'settings') {
-        // Verhindere unnötige Neuberechnungen, wenn sich Einstellungen nicht relevant geändert haben
+        // Verhindere unnötige Neuberechnungen
         if (JSON.stringify(state.settings) === JSON.stringify(data)) {
              initialSettingsLoaded = true;
-             // Wichtig: Auch wenn sich nichts geändert hat, müssen wir prüfen, ob wir rendern können (z.B. beim initialen Load).
              if (initialTasksLoaded && initialSettingsLoaded) {
                 showAppScreen();
              }
@@ -63,10 +60,10 @@ async function handleDataUpdate(type, data) {
 
     // Prüfe, ob das initiale Laden abgeschlossen ist
     if (initialTasksLoaded && initialSettingsLoaded) {
-        // Bei jedem Update (initial oder später): Neu berechnen und rendern
+        // Bei jedem Update: Neu berechnen und rendern
         recalculateSchedule();
-        await renderApp(); // Warten auf das Rendering (async wegen Benutzerkürzel-Laden)
-        // Sicherstellen, dass die App angezeigt wird (blendet Ladebildschirm aus)
+        await renderApp(); // Warten auf das Rendering (async)
+        // Sicherstellen, dass die App angezeigt wird
         showAppScreen();
     }
 }
@@ -82,19 +79,20 @@ function initializeUI() {
 
     // Attach global event listeners
     attachEventListeners();
+    // NEU: Initialisiere Filter-Interaktionen (Logik in ui-actions.js)
+    attachFilterInteractions(); 
     startDayChangeChecker();
 }
 
 
 // --- Timer ---
 function startDayChangeChecker() {
-    // GEÄNDERT: async wegen renderApp
+    // async wegen renderApp
     setInterval(async () => {
         const now = normalizeDate();
         if (now.getTime() !== currentDay.getTime()) {
             console.log("Tageswechsel erkannt. Aktualisiere Zeitplan und Ansicht.");
             currentDay = now;
-            // Wenn sich der Tag ändert, muss der Plan neu berechnet werden
             recalculateSchedule();
             await renderApp();
         }
@@ -107,31 +105,42 @@ let listenersAttached = false;
 function attachEventListeners() {
     if (listenersAttached) return;
 
+    // Settings Modal
     document.getElementById('settingsBtn').addEventListener('click', openModal);
     document.getElementById('closeModalBtn').addEventListener('click', closeModal);
+    document.getElementById('cancelSettingsBtn').addEventListener('click', closeModal); // NEU: Abbrechen Button
     document.getElementById('saveSettingsBtn').addEventListener('click', handleSaveSettings);
 
+    // Edit Modal
     document.getElementById('closeEditModalBtn').addEventListener('click', closeEditModal);
+    document.getElementById('cancelEditModalBtn').addEventListener('click', closeEditModal); // NEU: Abbrechen Button
     document.getElementById('saveTaskBtn').addEventListener('click', handleSaveEditedTask);
     document.getElementById('deleteTaskBtn').addEventListener('click', handleDeleteTask); 
 
-
-    window.addEventListener('click', (event) => {
-        if (event.target === document.getElementById('settingsModal')) {
+    // Klick außerhalb des Modals (Overlay-Klick)
+    // Wir prüfen, ob das geklickte Element das Overlay selbst ist (nicht der Container darin)
+    document.getElementById('settingsModal').addEventListener('click', (event) => {
+        if (event.target === event.currentTarget) {
             closeModal();
         }
-        if (event.target === document.getElementById('editTaskModal')) {
+    });
+    document.getElementById('editTaskModal').addEventListener('click', (event) => {
+        if (event.target === event.currentTarget) {
             closeEditModal();
         }
     });
 
+
+    // Global actions
     document.getElementById('toggleDragDrop').addEventListener('change', handleToggleDragDrop);
-    // GEÄNDERT: Handler wird jetzt aus ui-actions.js importiert
     document.getElementById('clearCompletedBtn').addEventListener('click', handleClearCompleted);
 
+    // Task creation
     document.getElementById('taskTypeButtonsContainer').addEventListener('click', (event) => {
-        if (event.target.classList.contains('task-type-btn')) {
-            setActiveTaskType(event.target);
+        // Nutzt closest, falls auf ein Element innerhalb des Buttons geklickt wurde
+        const button = event.target.closest('.task-type-btn');
+        if (button) {
+            setActiveTaskType(button);
         }
     });
 
@@ -144,36 +153,32 @@ function attachEventListeners() {
     listenersAttached = true;
 }
 
-// --- Handlers ---
+// --- Handlers (Unverändert zur letzten Version) ---
 
 async function handleToggleDragDrop(event) {
     const manualSortEnabled = event.target.checked;
     // Lokales State Update für sofortiges UI Feedback
     state.settings.autoPriority = !manualSortEnabled;
 
-    // 1. Einstellungen speichern (async). Dies löst ein Settings-Update über den Listener aus.
+    // 1. Einstellungen speichern (async).
     await saveSettings(state.settings);
     
     // 2. WICHTIG: Wenn wir auf Auto-Prio zurückschalten (Manuell AUS), müssen wir die Pins (manualDate) in der DB löschen.
     if (state.settings.autoPriority) {
-        // Wir müssen den lokalen State temporär aktualisieren, damit saveTaskDefinition die gelöschten Pins speichert.
-        // recalculateSchedule() tut dies.
+        // recalculateSchedule() aktualisiert den lokalen State und entfernt Pins.
         recalculateSchedule(); 
 
         for (const task of state.tasks) {
-             // Speichere die Änderung in der DB. 
-             // Wir warten hier nicht darauf (kein await), damit die UI schnell reagiert.
-             // database.js erstellt intern eine Kopie, daher ist es sicher, das task-Objekt direkt zu übergeben.
+             // Speichere die Änderung in der DB (ohne await für Responsivität).
              saveTaskDefinition(task);
         }
     }
     
-    // Da wir den State lokal geändert haben, rendern wir sofort neu für Responsivität.
+    // Da wir den State lokal geändert haben, rendern wir sofort neu.
     recalculateSchedule();
-    await renderApp(); // GEÄNDERT: async
+    await renderApp();
 }
 
-// handleClearCompleted wurde nach ui-actions.js verschoben.
 
 async function handleAddTask() {
     const description = document.getElementById('newTaskInput').value.trim();
@@ -182,7 +187,7 @@ async function handleAddTask() {
         return;
     }
 
-    // NEU: Lese Notizen und Ort
+    // Lese Notizen und Ort
     const notes = document.getElementById('newNotesInput').value.trim();
     const location = document.getElementById('newLocationInput').value.trim();
 
@@ -192,13 +197,13 @@ async function handleAddTask() {
         type: state.activeTaskType,
         completed: false,
         isManuallyScheduled: false,
-        notes: notes || null, // Speichere null, wenn leer
-        location: location || null // Speichere null, wenn leer
+        notes: notes || null,
+        location: location || null
         // assignedTo und ownerId werden automatisch in database.js gesetzt
     };
 
     try {
-        // GEÄNDERT: Input Validierung und Berechnung der Dauer
+        // Input Validierung und Berechnung der Dauer
         if (state.activeTaskType === 'Vorteil & Dauer') {
             const hours = document.getElementById('estimated-duration-h').value;
             const minutes = document.getElementById('estimated-duration-m').value;
@@ -228,10 +233,7 @@ async function handleAddTask() {
         const newId = await saveTaskDefinition(taskDefinition);
 
         if (newId) {
-            // WICHTIG: Wir müssen den State NICHT manuell aktualisieren!
-            // Der Firestore Listener (handleDataUpdate) wird automatisch die neue Aufgabe erhalten 
-            // und alles aktualisieren.
-            
+            // Der Firestore Listener (handleDataUpdate) wird die neue Aufgabe erhalten und alles aktualisieren.
             // Nur Inputs leeren
             clearInputs();
         } else {
@@ -247,17 +249,17 @@ async function handleSaveSettings() {
     // Lese die Einstellungen aus dem Modal UI
     const newSettings = updateAndGetSettingsFromModal();
 
-    // Behalte den Zustand von autoPriority bei (dieser wird nur durch den Toggle-Button gesteuert)
+    // Behalte den Zustand von autoPriority bei (wird nur durch den Toggle-Button gesteuert)
     newSettings.autoPriority = state.settings.autoPriority;
 
     // Aktualisiere den lokalen Zustand (für sofortiges Feedback)
     Object.assign(state.settings, newSettings);
 
-    // 1. Speichern (async). Dies löst ein Settings-Update über den Listener aus.
+    // 1. Speichern (async).
     await saveSettings(state.settings);
     closeModal();
     
-    // Der Listener (handleDataUpdate) wird dies auch tun, aber wir rufen es hier auf für Responsivität.
+    // Der Listener wird dies auch tun, aber wir rufen es hier auf für Responsivität.
     recalculateSchedule();
-    await renderApp(); // GEÄNDERT: async
+    await renderApp();
 }
