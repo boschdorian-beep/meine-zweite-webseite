@@ -1,19 +1,19 @@
 // js/main.js
 import { state } from './state.js';
-// GEÄNDERT: Importiere initializeDataListeners
 import { initializeDataListeners, saveSettings, saveTaskDefinition } from './database.js';
-import { recalculateSchedule, clearCompletedTasks } from './scheduler.js';
+import { recalculateSchedule } from './scheduler.js';
 import { renderApp } from './ui-render.js';
 import {
     openModal, closeModal, setActiveTaskType, clearInputs, updateAndGetSettingsFromModal,
-    closeEditModal, handleSaveEditedTask, handleDeleteTask
+    closeEditModal, handleSaveEditedTask, handleDeleteTask, handleClearCompleted
 } from './ui-actions.js';
-import { normalizeDate } from './utils.js';
+// NEU: Importiere calculateDecimalHours
+import { normalizeDate, calculateDecimalHours } from './utils.js';
 import { initializeAuth, showLoadingScreen, showAppScreen } from './auth.js';
 
 let currentDay = normalizeDate();
 let isInitialized = false;
-// NEU: Flags um initiales Laden zu verfolgen
+// Flags um initiales Laden zu verfolgen
 let initialTasksLoaded = false;
 let initialSettingsLoaded = false;
 
@@ -22,7 +22,7 @@ let initialSettingsLoaded = false;
 // 1. Startpunkt
 document.addEventListener('DOMContentLoaded', () => {
     showLoadingScreen();
-    // initializeAuth ruft onLoginSuccess auf, wenn angemeldet.
+    // initializeAuth ruft onLoginSuccess auf, wenn angemeldet und Profil vollständig.
     initializeAuth(onLoginSuccess);
 });
 
@@ -36,11 +36,12 @@ function onLoginSuccess() {
         initializeUI();
         isInitialized = true;
     }
-    // Die App wird angezeigt, sobald handleDataUpdate das initiale Laden bestätigt.
+    // Die App wird angezeigt, sobald handleDataUpdate das initiale Laden bestätigt UND das Profil geladen ist (in showAppScreen geprüft).
 }
 
-// 3. NEU: Callback für Daten-Updates (Zentraler Punkt für Synchronisation)
-function handleDataUpdate(type, data) {
+// 3. Callback für Daten-Updates (Zentraler Punkt für Synchronisation)
+// GEÄNDERT: async, da renderApp async ist
+async function handleDataUpdate(type, data) {
     // console.log(`Handling update for: ${type}`); // Optional für Debugging
 
     if (type === 'tasks') {
@@ -50,6 +51,10 @@ function handleDataUpdate(type, data) {
         // Verhindere unnötige Neuberechnungen, wenn sich Einstellungen nicht relevant geändert haben
         if (JSON.stringify(state.settings) === JSON.stringify(data)) {
              initialSettingsLoaded = true;
+             // Wichtig: Auch wenn sich nichts geändert hat, müssen wir prüfen, ob wir rendern können (z.B. beim initialen Load).
+             if (initialTasksLoaded && initialSettingsLoaded) {
+                showAppScreen();
+             }
              return; 
         }
         state.settings = data;
@@ -60,7 +65,7 @@ function handleDataUpdate(type, data) {
     if (initialTasksLoaded && initialSettingsLoaded) {
         // Bei jedem Update (initial oder später): Neu berechnen und rendern
         recalculateSchedule();
-        renderApp();
+        await renderApp(); // Warten auf das Rendering (async wegen Benutzerkürzel-Laden)
         // Sicherstellen, dass die App angezeigt wird (blendet Ladebildschirm aus)
         showAppScreen();
     }
@@ -81,27 +86,27 @@ function initializeUI() {
 }
 
 
-// --- Timer (Unverändert) ---
+// --- Timer ---
 function startDayChangeChecker() {
-    setInterval(() => {
+    // GEÄNDERT: async wegen renderApp
+    setInterval(async () => {
         const now = normalizeDate();
         if (now.getTime() !== currentDay.getTime()) {
             console.log("Tageswechsel erkannt. Aktualisiere Zeitplan und Ansicht.");
             currentDay = now;
             // Wenn sich der Tag ändert, muss der Plan neu berechnet werden
             recalculateSchedule();
-            renderApp();
+            await renderApp();
         }
     }, 10 * 60 * 1000); // 10 Minuten
 }
 
 
-// --- Event Listeners (Unverändert) ---
+// --- Event Listeners ---
 let listenersAttached = false;
 function attachEventListeners() {
     if (listenersAttached) return;
 
-    // (Listener Setup bleibt gleich)
     document.getElementById('settingsBtn').addEventListener('click', openModal);
     document.getElementById('closeModalBtn').addEventListener('click', closeModal);
     document.getElementById('saveSettingsBtn').addEventListener('click', handleSaveSettings);
@@ -121,6 +126,7 @@ function attachEventListeners() {
     });
 
     document.getElementById('toggleDragDrop').addEventListener('change', handleToggleDragDrop);
+    // GEÄNDERT: Handler wird jetzt aus ui-actions.js importiert
     document.getElementById('clearCompletedBtn').addEventListener('click', handleClearCompleted);
 
     document.getElementById('taskTypeButtonsContainer').addEventListener('click', (event) => {
@@ -138,7 +144,7 @@ function attachEventListeners() {
     listenersAttached = true;
 }
 
-// --- Handlers (GEÄNDERT: Angepasst an Listener-Architektur) ---
+// --- Handlers ---
 
 async function handleToggleDragDrop(event) {
     const manualSortEnabled = event.target.checked;
@@ -155,27 +161,19 @@ async function handleToggleDragDrop(event) {
         recalculateSchedule(); 
 
         for (const task of state.tasks) {
-             // Speichere die Änderung in der DB. Dies löst ein Task-Update über den Listener aus.
+             // Speichere die Änderung in der DB. 
              // Wir warten hier nicht darauf (kein await), damit die UI schnell reagiert.
+             // database.js erstellt intern eine Kopie, daher ist es sicher, das task-Objekt direkt zu übergeben.
              saveTaskDefinition(task);
         }
     }
     
     // Da wir den State lokal geändert haben, rendern wir sofort neu für Responsivität.
     recalculateSchedule();
-    renderApp();
+    await renderApp(); // GEÄNDERT: async
 }
 
-async function handleClearCompleted() {
-    if (confirm("Möchtest du wirklich alle erledigten Aufgaben endgültig löschen?")) {
-        // Wir müssen hier die Logik aus dem Scheduler aufrufen, die die DB aktualisiert.
-        const completedTasks = state.tasks.filter(task => task.completed);
-        const idsToDelete = completedTasks.map(t => t.id);
-        // Der Listener wird den State Update und Recalculate/Render triggern.
-        await clearCompletedTasks(idsToDelete);
-    }
-}
-
+// handleClearCompleted wurde nach ui-actions.js verschoben.
 
 async function handleAddTask() {
     const description = document.getElementById('newTaskInput').value.trim();
@@ -184,31 +182,46 @@ async function handleAddTask() {
         return;
     }
 
+    // NEU: Lese Notizen und Ort
+    const notes = document.getElementById('newNotesInput').value.trim();
+    const location = document.getElementById('newLocationInput').value.trim();
+
     // Erstelle die Aufgabendefinition
     const taskDefinition = {
         description: description,
         type: state.activeTaskType,
         completed: false,
-        isManuallyScheduled: false
+        isManuallyScheduled: false,
+        notes: notes || null, // Speichere null, wenn leer
+        location: location || null // Speichere null, wenn leer
+        // assignedTo und ownerId werden automatisch in database.js gesetzt
     };
 
     try {
-        // (Input Validierung unverändert)
+        // GEÄNDERT: Input Validierung und Berechnung der Dauer
         if (state.activeTaskType === 'Vorteil & Dauer') {
-            taskDefinition.estimatedDuration = parseFloat(document.getElementById('estimated-duration').value) || 0;
+            const hours = document.getElementById('estimated-duration-h').value;
+            const minutes = document.getElementById('estimated-duration-m').value;
+            taskDefinition.estimatedDuration = calculateDecimalHours(hours, minutes);
             taskDefinition.financialBenefit = document.getElementById('monthly-financial-benefit').value.trim();
 
         } else if (state.activeTaskType === 'Deadline') {
             const deadlineDate = document.getElementById('deadline-date').value;
             if (!deadlineDate) throw new Error("Bitte gib ein Deadline Datum ein!");
             taskDefinition.deadlineDate = deadlineDate;
-            taskDefinition.deadlineDuration = parseFloat(document.getElementById('deadline-duration').value) || 0;
+            
+            const hours = document.getElementById('deadline-duration-h').value;
+            const minutes = document.getElementById('deadline-duration-m').value;
+            taskDefinition.deadlineDuration = calculateDecimalHours(hours, minutes);
 
         } else if (state.activeTaskType === 'Fixer Termin') {
             const fixedDate = document.getElementById('fixed-date').value;
             if (!fixedDate) throw new Error("Bitte gib ein Datum für den fixen Termin ein!");
             taskDefinition.fixedDate = fixedDate;
-            taskDefinition.fixedDuration = parseFloat(document.getElementById('fixed-duration').value) || 0;
+
+            const hours = document.getElementById('fixed-duration-h').value;
+            const minutes = document.getElementById('fixed-duration-m').value;
+            taskDefinition.fixedDuration = calculateDecimalHours(hours, minutes);
         }
 
         // 1. Speichere die Definition in der Datenbank (async)
@@ -234,7 +247,7 @@ async function handleSaveSettings() {
     // Lese die Einstellungen aus dem Modal UI
     const newSettings = updateAndGetSettingsFromModal();
 
-    // Behalte den Zustand von autoPriority bei
+    // Behalte den Zustand von autoPriority bei (dieser wird nur durch den Toggle-Button gesteuert)
     newSettings.autoPriority = state.settings.autoPriority;
 
     // Aktualisiere den lokalen Zustand (für sofortiges Feedback)
@@ -244,8 +257,7 @@ async function handleSaveSettings() {
     await saveSettings(state.settings);
     closeModal();
     
-    // Der Listener (handleDataUpdate) wird recalculateSchedule() und renderApp() aufrufen.
-    // Wir rufen es hier auch auf, um sofortige Responsivität zu gewährleisten.
+    // Der Listener (handleDataUpdate) wird dies auch tun, aber wir rufen es hier auf für Responsivität.
     recalculateSchedule();
-    renderApp();
+    await renderApp(); // GEÄNDERT: async
 }
