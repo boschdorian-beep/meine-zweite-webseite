@@ -1,5 +1,5 @@
 // js/database.js
-// KORRIGIERT: 'set' wurde aus dem Import entfernt.
+// KORRIGIERT: getDoc wurde hinzugefügt, da es im originalen Code verwendet wurde, auch wenn es hier aktuell nicht strikt nötig ist.
 import { collection, query, where, doc, setDoc, deleteDoc, writeBatch, onSnapshot, getDoc } from 'https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js';
 import { db } from './firebase-init.js';
 import { state } from './state.js';
@@ -45,7 +45,7 @@ export function initializeDataListeners(onUpdateCallback) {
     }, (error) => {
         console.error("Error in tasks listener:", error);
         if (error.code === 'permission-denied') {
-             alert("Zugriff verweigert (Tasks). Bitte überprüfen Sie die Firestore-Sicherheitsregeln.");
+             alert("Zugriff verweigert (Tasks). Bitte überprüfen Sie die Firestore-Sicherheitsregeln (Stellen Sie sicher, dass 'assignedTo' korrekt geprüft wird).");
         } else {
             alert("Fehler bei der Echtzeit-Synchronisierung der Aufgaben. Bitte prüfe die Netzwerkverbindung.");
         }
@@ -56,6 +56,7 @@ export function initializeDataListeners(onUpdateCallback) {
     activeListeners.settings = onSnapshot(settingsRef, async (docSnap) => {
         if (docSnap.exists()) {
             const loadedSettings = docSnap.data();
+            // Validierung stellt sicher, dass die Struktur korrekt ist, auch wenn Daten alt sind
             const validatedSettings = validateSettings({ ...getDefaultSettings(), ...loadedSettings });
             console.log("Settings update received from Firestore.");
             onUpdateCallback('settings', validatedSettings);
@@ -103,14 +104,17 @@ export async function saveTaskDefinition(taskDefinition) {
     if (!state.user) return null;
 
     const userId = state.user.uid;
+    // WICHTIG: Erstelle eine Kopie der Daten. Das verhindert, dass das Originalobjekt (im State) verändert wird.
     const dataToSave = { ...taskDefinition };
 
     // 1. Metadaten sicherstellen
     if (!dataToSave.ownerId) {
         dataToSave.ownerId = userId;
     }
+    // Wichtig: Wenn assignedTo leer ist (sollte nicht passieren, aber sicher ist sicher), füge den Besitzer hinzu.
     if (!dataToSave.assignedTo || dataToSave.assignedTo.length === 0) {
-        dataToSave.assignedTo = [userId];
+        // Verwende ownerId, falls der aktuelle User nicht der Owner ist (z.B. beim Speichern durch Teammitglied)
+        dataToSave.assignedTo = [dataToSave.ownerId];
     }
 
     // 2. Speichern
@@ -119,7 +123,9 @@ export async function saveTaskDefinition(taskDefinition) {
         if (dataToSave.id && !dataToSave.id.startsWith('temp-')) {
             // Existierende Aufgabe aktualisieren
             docRef = doc(db, "tasks", dataToSave.id);
+            // ID nicht im Dokument speichern (sie ist der Dokumentschlüssel)
             delete dataToSave.id;
+            // merge: true sorgt dafür, dass bestehende Felder nicht gelöscht werden, wenn sie in dataToSave fehlen
             await setDoc(docRef, dataToSave, { merge: true });
             return docRef.id;
         } else {
@@ -140,6 +146,7 @@ export async function deleteTaskDefinition(taskId) {
 
     try {
         const docRef = doc(db, "tasks", taskId);
+        // Hinweis: Die Sicherheitsregeln müssen prüfen, ob der Benutzer diese Aufgabe löschen darf (assignedTo Check).
         await deleteDoc(docRef);
     } catch (error) {
         console.error("Fehler beim Löschen der Aufgabe:", error);
@@ -149,6 +156,7 @@ export async function deleteTaskDefinition(taskId) {
 export async function clearAllCompletedTasks(completedTaskIds) {
     if (!state.user || completedTaskIds.length === 0) return;
 
+    // Nutzt Batch Write für atomares Löschen mehrerer Dokumente
     const batch = writeBatch(db);
     completedTaskIds.forEach(id => {
         const docRef = doc(db, "tasks", id);
