@@ -5,10 +5,16 @@
  */
 export const state = {
     user: null,       // Firebase User Objekt
-    userProfile: null, // NEU: Geladenes Profil aus der 'users' Collection (Name, Kürzel)
+    userProfile: null, // Geladenes Profil aus der 'users' Collection (Name, Kürzel)
     tasks: [],        // Original task definitions (as stored in Firestore)
     schedule: [],     // Calculated schedule instances (ephemeral, not stored)
     settings: {},
     activeTaskType: 'Vorteil & Dauer',
-    draggedItem: null
+    draggedItem: null,
+    
+    // NEU: Zustand für die Filterleiste
+    filters: {
+        prioritizedLocation: null, // String des Ortsnamens
+        prioritizedUsers: [],      // Array von UIDs der ausgewählten Benutzer
+    }
 };
