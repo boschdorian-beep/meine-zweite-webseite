@@ -1,7 +1,7 @@
 // js/main.js
 import { state } from './state.js';
-// GEÄNDERT: Importiere saveTaskDefinition
-import { loadTasks, loadSettings, saveSettings, saveTaskDefinition } from './database.js';
+// GEÄNDERT: Importiere initializeDataListeners
+import { initializeDataListeners, saveSettings, saveTaskDefinition } from './database.js';
 import { recalculateSchedule, clearCompletedTasks } from './scheduler.js';
 import { renderApp } from './ui-render.js';
 import {
@@ -13,42 +13,62 @@ import { initializeAuth, showLoadingScreen, showAppScreen } from './auth.js';
 
 let currentDay = normalizeDate();
 let isInitialized = false;
+// NEU: Flags um initiales Laden zu verfolgen
+let initialTasksLoaded = false;
+let initialSettingsLoaded = false;
 
 // --- Initialization Flow ---
 
 // 1. Startpunkt
 document.addEventListener('DOMContentLoaded', () => {
     showLoadingScreen();
+    // initializeAuth ruft onLoginSuccess auf, wenn angemeldet.
     initializeAuth(onLoginSuccess);
 });
 
-// 2. Wird aufgerufen, wenn Login erfolgreich war
-async function onLoginSuccess() {
-    if (isInitialized) {
-        showAppScreen();
-        return;
+// 2. Wird aufgerufen, wenn Login erfolgreich war (bei jedem Login/Session Restore)
+function onLoginSuccess() {
+    // Starte die Daten-Listener. Dies ruft handleDataUpdate auf, sobald Daten verfügbar sind.
+    initializeDataListeners(handleDataUpdate);
+
+    if (!isInitialized) {
+        // Initialisiere die UI-Events nur beim ersten Mal
+        initializeUI();
+        isInitialized = true;
     }
-
-    showLoadingScreen();
-
-    // Lade Daten (Definitionen)
-    state.settings = await loadSettings();
-    state.tasks = await loadTasks();
-
-    // Initialisiere die App Logik
-    initializeAppDataAndUI();
-    isInitialized = true;
-    showAppScreen();
+    // Die App wird angezeigt, sobald handleDataUpdate das initiale Laden bestätigt.
 }
 
-// 3. Initialisierung der App-Logik und UI
-function initializeAppDataAndUI() {
-    // Berechnung (Plan erstellen) - Jetzt wieder synchron
-    recalculateSchedule();
+// 3. NEU: Callback für Daten-Updates (Zentraler Punkt für Synchronisation)
+function handleDataUpdate(type, data) {
+    // console.log(`Handling update for: ${type}`); // Optional für Debugging
 
-    // Rendering
-    renderApp();
+    if (type === 'tasks') {
+        state.tasks = data;
+        initialTasksLoaded = true;
+    } else if (type === 'settings') {
+        // Verhindere unnötige Neuberechnungen, wenn sich Einstellungen nicht relevant geändert haben
+        if (JSON.stringify(state.settings) === JSON.stringify(data)) {
+             initialSettingsLoaded = true;
+             return; 
+        }
+        state.settings = data;
+        initialSettingsLoaded = true;
+    }
 
+    // Prüfe, ob das initiale Laden abgeschlossen ist
+    if (initialTasksLoaded && initialSettingsLoaded) {
+        // Bei jedem Update (initial oder später): Neu berechnen und rendern
+        recalculateSchedule();
+        renderApp();
+        // Sicherstellen, dass die App angezeigt wird (blendet Ladebildschirm aus)
+        showAppScreen();
+    }
+}
+
+
+// 4. Initialisierung der statischen UI-Elemente
+function initializeUI() {
     // Set default active task type
     const defaultButton = document.querySelector('.task-type-btn[data-type="Vorteil & Dauer"]');
     if (defaultButton) {
@@ -61,7 +81,7 @@ function initializeAppDataAndUI() {
 }
 
 
-// --- Timer (GEÄNDERT: recalculateSchedule ist wieder synchron) ---
+// --- Timer (Unverändert) ---
 function startDayChangeChecker() {
     setInterval(() => {
         const now = normalizeDate();
@@ -81,13 +101,13 @@ let listenersAttached = false;
 function attachEventListeners() {
     if (listenersAttached) return;
 
+    // (Listener Setup bleibt gleich)
     document.getElementById('settingsBtn').addEventListener('click', openModal);
     document.getElementById('closeModalBtn').addEventListener('click', closeModal);
     document.getElementById('saveSettingsBtn').addEventListener('click', handleSaveSettings);
 
     document.getElementById('closeEditModalBtn').addEventListener('click', closeEditModal);
     document.getElementById('saveTaskBtn').addEventListener('click', handleSaveEditedTask);
-    // Wichtig: handleDeleteTask aus ui-actions.js wird verwendet
     document.getElementById('deleteTaskBtn').addEventListener('click', handleDeleteTask); 
 
 
@@ -118,41 +138,45 @@ function attachEventListeners() {
     listenersAttached = true;
 }
 
-// --- Handlers (GEÄNDERT: Folgen dem neuen Muster) ---
+// --- Handlers (GEÄNDERT: Angepasst an Listener-Architektur) ---
 
 async function handleToggleDragDrop(event) {
     const manualSortEnabled = event.target.checked;
+    // Lokales State Update für sofortiges UI Feedback
     state.settings.autoPriority = !manualSortEnabled;
 
-    // 1. Einstellungen speichern (async)
+    // 1. Einstellungen speichern (async). Dies löst ein Settings-Update über den Listener aus.
     await saveSettings(state.settings);
     
-    // 2. Neu berechnen (synchron, setzt isManuallyScheduled/manualDate zurück wenn nötig)
-    recalculateSchedule();
-    
-    // 3. Rendern
-    renderApp();
-    
-    // 4. WICHTIG: Wenn wir auf Auto-Prio zurückschalten, müssen wir die Pins (manualDate) in der DB löschen.
+    // 2. WICHTIG: Wenn wir auf Auto-Prio zurückschalten (Manuell AUS), müssen wir die Pins (manualDate) in der DB löschen.
     if (state.settings.autoPriority) {
-        // Da recalculateSchedule die Pins bereits lokal entfernt hat, speichern wir den aktuellen Stand.
+        // Wir müssen den lokalen State temporär aktualisieren, damit saveTaskDefinition die gelöschten Pins speichert.
+        // recalculateSchedule() tut dies.
+        recalculateSchedule(); 
+
         for (const task of state.tasks) {
-             // Optimierung: Man könnte prüfen, ob die Aufgabe vorher manuell war, aber ein Update aller ist sicherer.
-             await saveTaskDefinition(task);
+             // Speichere die Änderung in der DB. Dies löst ein Task-Update über den Listener aus.
+             // Wir warten hier nicht darauf (kein await), damit die UI schnell reagiert.
+             saveTaskDefinition(task);
         }
     }
+    
+    // Da wir den State lokal geändert haben, rendern wir sofort neu für Responsivität.
+    recalculateSchedule();
+    renderApp();
 }
 
 async function handleClearCompleted() {
     if (confirm("Möchtest du wirklich alle erledigten Aufgaben endgültig löschen?")) {
-        // clearCompletedTasks kümmert sich um DB Update, State Update und Recalculate
-        await clearCompletedTasks();
-        renderApp();
+        // Wir müssen hier die Logik aus dem Scheduler aufrufen, die die DB aktualisiert.
+        const completedTasks = state.tasks.filter(task => task.completed);
+        const idsToDelete = completedTasks.map(t => t.id);
+        // Der Listener wird den State Update und Recalculate/Render triggern.
+        await clearCompletedTasks(idsToDelete);
     }
 }
 
 
-// GEÄNDERT: Neues Muster für handleAddTask
 async function handleAddTask() {
     const description = document.getElementById('newTaskInput').value.trim();
     if (description === '') {
@@ -162,12 +186,10 @@ async function handleAddTask() {
 
     // Erstelle die Aufgabendefinition
     const taskDefinition = {
-        // id wird von Firebase generiert
         description: description,
         type: state.activeTaskType,
         completed: false,
         isManuallyScheduled: false
-        // ownerId und assignedTo werden in saveTaskDefinition hinzugefügt
     };
 
     try {
@@ -193,15 +215,11 @@ async function handleAddTask() {
         const newId = await saveTaskDefinition(taskDefinition);
 
         if (newId) {
-            // 2. Füge die Definition mit der echten ID zum lokalen State hinzu
-            taskDefinition.id = newId;
-            state.tasks.push(taskDefinition);
-
-            // 3. Berechne den Plan neu
-            recalculateSchedule();
-
-            // 4. Rendern und Inputs leeren
-            renderApp();
+            // WICHTIG: Wir müssen den State NICHT manuell aktualisieren!
+            // Der Firestore Listener (handleDataUpdate) wird automatisch die neue Aufgabe erhalten 
+            // und alles aktualisieren.
+            
+            // Nur Inputs leeren
             clearInputs();
         } else {
             throw new Error("Konnte Aufgabe nicht in der Datenbank speichern.");
@@ -219,16 +237,15 @@ async function handleSaveSettings() {
     // Behalte den Zustand von autoPriority bei
     newSettings.autoPriority = state.settings.autoPriority;
 
-    // Aktualisiere den globalen Zustand
+    // Aktualisiere den lokalen Zustand (für sofortiges Feedback)
     Object.assign(state.settings, newSettings);
 
-    // 1. Speichern (async)
+    // 1. Speichern (async). Dies löst ein Settings-Update über den Listener aus.
     await saveSettings(state.settings);
     closeModal();
-
-    // 2. Neu planen
-    recalculateSchedule();
     
-    // 3. Rendern
+    // Der Listener (handleDataUpdate) wird recalculateSchedule() und renderApp() aufrufen.
+    // Wir rufen es hier auch auf, um sofortige Responsivität zu gewährleisten.
+    recalculateSchedule();
     renderApp();
 }
