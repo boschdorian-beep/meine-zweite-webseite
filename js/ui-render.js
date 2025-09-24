@@ -1,10 +1,12 @@
 // js/ui-render.js
 import { state } from './state.js';
 import { WEEKDAYS } from './config.js';
-import { formatHoursMinutes, formatDateToYYYYMMDD, normalizeDate, parseDateString } from './utils.js';
-// GEÄNDERT: Importiere angepasste Funktionen
+// GEÄNDERT: Importiere generateColorFromString
+import { formatHoursMinutes, formatDateToYYYYMMDD, normalizeDate, parseDateString, generateColorFromString } from './utils.js';
 import { getScheduleItemDuration, getDailyAvailableHours, getOriginalTotalDuration } from './scheduler.js';
 import { attachTaskInteractions } from './ui-actions.js';
+// NEU: Importiere getShortNamesForUids
+import { getShortNamesForUids } from './collaboration.js';
 
 // (Element Caching unverändert)
 const elements = {
@@ -24,11 +26,11 @@ const elements = {
     toggleDragDrop: document.getElementById('toggleDragDrop'),
 };
 
-
-export function renderApp() {
-    // GEÄNDERT: Rendere Schedule und Tasks separat
-    renderSchedule();
-    renderCompletedTasks();
+// GEÄNDERT: Muss async sein, da renderSchedule() und renderCompletedTasks() jetzt async sind
+export async function renderApp() {
+    // Rendere Schedule (lädt asynchron die Benutzerkürzel)
+    await renderSchedule();
+    await renderCompletedTasks();
     updateAvailableTimeDisplays();
     // (Toggle State Update unverändert)
     if (elements.toggleDragDrop) {
@@ -40,8 +42,9 @@ export function renderApp() {
 
 /**
  * Rendert den aktiven Zeitplan (state.schedule).
+ * GEÄNDERT: Muss async sein, um Benutzerkürzel zu laden.
  */
-function renderSchedule() {
+async function renderSchedule() {
     // Clear active lists
     [elements.todayTasksList, elements.tomorrowTasksList, elements.futureTasksList].forEach(list => list.innerHTML = '');
     [elements.noTodayTasks, elements.noTomorrowTasks, elements.noFutureTasks].forEach(msg => msg.style.display = 'block');
@@ -52,11 +55,11 @@ function renderSchedule() {
     const overmorrow = normalizeDate();
     overmorrow.setDate(overmorrow.getDate() + 2);
 
-    // Wir verwenden state.schedule. Sortierung wird durch den Scheduler bestimmt.
     const activeSchedule = state.schedule;
 
     const todayItems = [], tomorrowItems = [], futureItems = [], unscheduledItems = [];
 
+    // Gruppiere Items nach Datum
     activeSchedule.forEach(item => {
         const itemPlannedDate = parseDateString(item.plannedDate);
 
@@ -65,7 +68,7 @@ function renderSchedule() {
             return;
         }
 
-        // Wenn das geplante Datum in der Vergangenheit liegt, gehört es zu HEUTE.
+        // Wenn das geplante Datum in der Vergangenheit liegt, gehört es zu HEUTE (Überfällig).
         if (itemPlannedDate.getTime() <= today.getTime()) {
             todayItems.push(item);
         } else if (itemPlannedDate.getTime() === tomorrow.getTime()) {
@@ -75,25 +78,38 @@ function renderSchedule() {
         }
     });
 
-    const renderList = (items, listElement, noTasksMsg) => {
+    // NEU: Lade alle benötigten Benutzerkürzel im Voraus (Optimierung)
+    // Sammle alle UIDs aus dem gesamten Schedule
+    const allUids = activeSchedule.flatMap(item => item.assignedTo || []);
+    // Lade die Profile (füllt den Cache in collaboration.js)
+    await getShortNamesForUids([...new Set(allUids)]); 
+
+    // Helper Funktion zum Rendern einer Liste
+    const renderList = async (items, listElement, noTasksMsg) => {
         if (items.length > 0) {
             noTasksMsg.style.display = 'none';
-            // Wir rendern Schedule Items
-            items.forEach(item => listElement.appendChild(createScheduleItemElement(item)));
+            
+            // Rendere die Elemente
+            for (const item of items) {
+                // Lade Kürzel für dieses spezifische Item (nutzt jetzt den Cache)
+                const shortNames = await getShortNamesForUids(item.assignedTo);
+                listElement.appendChild(createScheduleItemElement(item, shortNames));
+            }
         }
     };
 
-    renderList(todayItems, elements.todayTasksList, elements.noTodayTasks);
-    renderList(tomorrowItems, elements.tomorrowTasksList, elements.noTomorrowTasks);
+    await renderList(todayItems, elements.todayTasksList, elements.noTodayTasks);
+    await renderList(tomorrowItems, elements.tomorrowTasksList, elements.noTomorrowTasks);
 
     // Zukünftige Items sind bereits nach Datum sortiert (durch den Scheduler).
-    renderList([...futureItems, ...unscheduledItems], elements.futureTasksList, elements.noFutureTasks);
+    await renderList([...futureItems, ...unscheduledItems], elements.futureTasksList, elements.noFutureTasks);
 }
 
 /**
  * Rendert die erledigten Aufgaben (aus state.tasks).
+ * GEÄNDERT: async
  */
-function renderCompletedTasks() {
+async function renderCompletedTasks() {
     elements.completedTasksList.innerHTML = '';
     elements.noCompletedTasks.style.display = 'block';
 
@@ -110,17 +126,24 @@ function renderCompletedTasks() {
             return (b.id > a.id) ? 1 : -1; // Fallback
         });
 
-        completedTasks.forEach(task => {
-             elements.completedTasksList.appendChild(createCompletedTaskElement(task));
-        });
+        // Lade alle Benutzerkürzel im Voraus
+        const allUidsInList = completedTasks.flatMap(task => task.assignedTo || []);
+        await getShortNamesForUids([...new Set(allUidsInList)]);
+
+        for (const task of completedTasks) {
+            // Lade Kürzel (nutzt Cache)
+            const shortNames = await getShortNamesForUids(task.assignedTo);
+            elements.completedTasksList.appendChild(createCompletedTaskElement(task, shortNames));
+        }
     }
 }
 
 
 /**
  * Erstellt das DOM Element für ein aktives Schedule Item.
+ * GEÄNDERT: Stark überarbeitet für neue Features.
  */
-function createScheduleItemElement(item) {
+function createScheduleItemElement(item, assignedShortNames = []) {
     const itemElement = document.createElement('div');
     let classes = `task-item`;
 
@@ -143,16 +166,44 @@ function createScheduleItemElement(item) {
     }
 
     itemElement.className = classes;
-    // WICHTIG: Wir speichern die Task ID für Interaktionen (Link zur Definition)
     itemElement.dataset.taskId = item.taskId;
-    // Wir speichern auch die Schedule ID für UI-Referenzen (z.B. Drag&Drop Zielbestimmung)
     itemElement.dataset.scheduleId = item.scheduleId;
 
+    // --- Neue Elemente ---
 
+    // 1. Ortsmarkierung
+    let locationMarker = '';
+    if (item.location) {
+        const color = generateColorFromString(item.location);
+        locationMarker = `<div class="task-location-marker" style="background-color: ${color};" title="Ort: ${item.location}"></div>`;
+    }
+
+    // 2. Notizen (Button und Inhalt)
+    let notesToggle = '';
+    let notesContentHtml = '';
+    if (item.notes) {
+        // Button zum Ein-/Ausklappen (Standardmäßig eingeklappt)
+        notesToggle = `<button class="toggle-notes-btn ml-3 cursor-pointer hover:text-gray-700 transition duration-150" title="Notizen anzeigen/verbergen">
+                            <i class="fas fa-chevron-down text-gray-500"></i>
+                       </button>`;
+        // Inhalt (versteckt) - wird später als Element hinzugefügt für Sicherheit (textContent)
+        notesContentHtml = `<div class="task-notes-content hidden w-full"></div>`;
+    }
+
+    // 3. Zugewiesene Benutzer (Kürzel)
+    let assignedUsersDisplay = '';
+    if (assignedShortNames.length > 0) {
+        const userBadges = assignedShortNames.map(name => `<span class="user-shortname">${name}</span>`).join('');
+        assignedUsersDisplay = `<div class="assigned-users-display">${userBadges}</div>`;
+    }
+
+    // --- Bestehende Elemente (angepasst) ---
+
+    // Dauer
     const duration = getScheduleItemDuration(item);
-    const durationDisplay = duration > 0 ? `<span class="ml-4 text-sm text-gray-500">(${duration.toFixed(2)}h)</span>` : '';
+    const durationDisplay = duration > 0 ? `<span class="ml-4 text-sm text-gray-500">(${formatHoursMinutes(duration)})</span>` : '';
 
-    // Benefit Display (Logik angepasst für Schedule Item)
+    // Finanzieller Vorteil
     let benefitDisplay = '';
     if (item.type === 'Vorteil & Dauer' && item.financialBenefit && parseFloat(item.financialBenefit) > 0) {
         // Nutze die gespeicherte estimatedDuration vom Item
@@ -165,7 +216,7 @@ function createScheduleItemElement(item) {
         }
     }
 
-    // Date Display (Logik unverändert)
+    // Datum (wenn in der Zukunft)
     let plannedDateDisplay = '';
     const tomorrow = normalizeDate();
     tomorrow.setDate(tomorrow.getDate() + 1);
@@ -178,47 +229,80 @@ function createScheduleItemElement(item) {
     const manualScheduleFlag = item.isManuallyScheduled && !state.settings.autoPriority ? `<i class="fas fa-thumbtack text-blue-500 ml-2 text-sm" title="Manuell geplant (wird nicht automatisch verschoben)"></i>` : '';
 
 
+    // Finales HTML Layout
+    // WICHTIG: Checkbox benötigt mt-0.5 für die vertikale Ausrichtung mit dem Text, da das task-item `items-start` (in CSS) verwendet.
     itemElement.innerHTML = `
+        ${locationMarker}
         <div class="flex items-center flex-grow">
-            <input type="checkbox" data-task-id="${item.taskId}" class="task-checkbox form-checkbox h-5 w-5 text-green-600 rounded mr-3 cursor-pointer">
+            <input type="checkbox" data-task-id="${item.taskId}" class="task-checkbox form-checkbox h-5 w-5 text-green-600 rounded mr-3 cursor-pointer mt-0.5">
             <span class="task-content text-gray-800 text-lg cursor-pointer hover:text-blue-600 transition duration-150">${item.description}</span>
+            ${notesToggle}
             ${manualScheduleFlag}
             ${durationDisplay}
             ${benefitDisplay}
             ${item.deadlineDate ? `<span class="ml-2 text-sm text-red-500">Deadline: ${item.deadlineDate}</span>` : ''}
             ${item.fixedDate ? `<span class="ml-2 text-sm text-blue-500">Termin: ${item.fixedDate}</span>` : ''}
             ${plannedDateDisplay}
+            ${assignedUsersDisplay}
         </div>
+        ${notesContentHtml}
     `;
+
+    // Sicherstellen, dass der Notizinhalt als Text eingefügt wird (verhindert XSS)
+    if (item.notes) {
+        const notesElement = itemElement.querySelector('.task-notes-content');
+        if (notesElement) {
+            notesElement.textContent = item.notes;
+        }
+    }
 
     return itemElement;
 }
 
 /**
  * Erstellt das DOM Element für eine erledigte Aufgabe (Definition).
+ * GEÄNDERT: Zeigt Location und Assigned Users an.
  */
-function createCompletedTaskElement(task) {
+function createCompletedTaskElement(task, assignedShortNames = []) {
     const taskElement = document.createElement('div');
+    // cursor-default entfernt den Grab-Cursor
     taskElement.className = 'task-item completed cursor-default';
     taskElement.dataset.taskId = task.id;
 
-    // Zeige die Gesamtdauer an
+    // 1. Ort (Farbiger Balken)
+    let locationMarker = '';
+    if (task.location) {
+        const color = generateColorFromString(task.location);
+        // Etwas transparenter bei erledigten Aufgaben
+        locationMarker = `<div class="task-location-marker" style="background-color: ${color}; opacity: 0.6;" title="Ort: ${task.location}"></div>`;
+    }
+
+    // 2. Zugewiesene Benutzer (Kürzel)
+    let assignedUsersDisplay = '';
+    if (assignedShortNames.length > 0) {
+        const userBadges = assignedShortNames.map(name => `<span class="user-shortname">${name}</span>`).join('');
+        assignedUsersDisplay = `<div class="assigned-users-display">${userBadges}</div>`;
+    }
+
+    // Dauer (nutzt neue Formatierung)
     const duration = getOriginalTotalDuration(task);
-    const durationDisplay = duration > 0 ? `<span class="ml-4 text-sm text-gray-500">(${duration.toFixed(2)}h)</span>` : '';
+    const durationDisplay = duration > 0 ? `<span class="ml-4 text-sm text-gray-500">(${formatHoursMinutes(duration)})</span>` : '';
 
     taskElement.innerHTML = `
+        ${locationMarker}
         <div class="flex items-center flex-grow">
             <input type="checkbox" data-task-id="${task.id}" checked class="task-checkbox form-checkbox h-5 w-5 text-green-600 rounded mr-3 cursor-pointer">
-            <span class="task-content text-gray-800 text-lg cursor-pointer hover:text-blue-600 transition duration-150">${task.description}</span>
+            <span class="task-content text-gray-800 text-lg">${task.description}</span>
             ${durationDisplay}
+            ${assignedUsersDisplay}
         </div>
     `;
     return taskElement;
 }
 
 
+// (updateAvailableTimeDisplays Logik unverändert, aber nutzt das neue formatHoursMinutes)
 function updateAvailableTimeDisplays() {
-    // GEÄNDERT: Basiert jetzt auf state.schedule
     const today = normalizeDate();
     const tomorrow = normalizeDate();
     tomorrow.setDate(tomorrow.getDate() + 1);
@@ -252,6 +336,7 @@ function updateAvailableTimeDisplays() {
     const availableToday = getDailyAvailableHours(today);
     const availableTomorrow = getDailyAvailableHours(tomorrow);
 
+    // Berechne Verfügbarkeit für die nächsten 7 Tage (ohne Heute/Morgen)
     let availableFuture = 0;
     for (let i = 2; i < 9; i++) {
         const futureDate = normalizeDate();
