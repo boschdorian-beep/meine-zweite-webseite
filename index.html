@@ -7,23 +7,34 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <style>
-        /* (CSS Styles bleiben unverändert zur vorherigen Version) */
+        /* (Basis Styles bleiben unverändert) */
         body {
             font-family: 'Inter', sans-serif;
             @apply bg-gray-100 flex justify-center items-center min-h-screen p-6;
         }
         body.app-layout {
-             @apply items-start;
+             /* GEÄNDERT: Etwas Abstand nach oben */
+             @apply items-start pt-6;
         }
         .task-item {
-            @apply flex items-center justify-between bg-white p-4 rounded-lg shadow-sm mb-3;
+            /* GEÄNDERT: items-start ist wichtig, damit die Checkbox oben bleibt, wenn Notizen aufgeklappt werden. padding-left erhöht. */
+            @apply flex items-start justify-between bg-white p-4 rounded-lg shadow-sm mb-3 flex-wrap relative overflow-hidden pl-6;
         }
+
+         /* NEU: Ortsmarkierung (Farbiger Balken links) */
+        .task-location-marker {
+            @apply absolute top-0 left-0 bottom-0 w-3;
+        }
+
         .task-item.completed {
             @apply line-through text-gray-500 bg-gray-100;
+            /* Bei erledigten Aufgaben wieder vertikal zentrieren */
+            @apply items-center;
         }
         .task-item.overdue {
             @apply border-2 border-red-400 bg-red-50;
         }
+        /* ... (Drag&Drop Styles unverändert) ... */
         .task-item.dragging {
             @apply opacity-50 border-2 border-dashed border-blue-400;
             cursor: grabbing;
@@ -55,6 +66,21 @@
         .day-section:last-child {
             margin-bottom: 0;
         }
+
+        /* NEU: Styles für Notizen-Details (wenn aufgeklappt) */
+        .task-notes-content {
+            /* whitespace-pre-wrap sorgt dafür, dass Zeilenumbrüche erhalten bleiben */
+            @apply text-sm text-gray-600 mt-2 p-3 bg-gray-50 rounded-lg whitespace-pre-wrap w-full ml-8;
+        }
+
+        /* NEU: Styles für zugewiesene Benutzerkürzel */
+        .assigned-users-display {
+            @apply flex items-center space-x-1 ml-4;
+        }
+        .user-shortname {
+            /* Nutze px-2 für flexible Breite, falls Kürzel länger als 2 Zeichen sind */
+            @apply inline-flex items-center justify-center h-6 px-2 rounded-full bg-blue-200 text-xs font-semibold text-blue-800 border border-blue-400;
+        }
     </style>
 </head>
 <body class="bg-gray-100 font-inter">
@@ -77,6 +103,9 @@
 
         <div id="register-view" class="hidden">
             <h2 class="text-xl font-semibold mb-4">Registrieren</h2>
+            <input type="text" id="register-displayname" placeholder="Dein Name (z.B. Max Mustermann)" class="w-full p-3 mb-4 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
+            <input type="text" id="register-shortname" placeholder="Kürzel (z.B. MM, max 5 Zeichen)" maxlength="5" class="w-full p-3 mb-4 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
+            
             <input type="email" id="register-email" placeholder="E-Mail Adresse" class="w-full p-3 mb-4 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
             <input type="password" id="register-password" placeholder="Passwort (min. 6 Zeichen)" class="w-full p-3 mb-4 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
             <button id="register-btn" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg shadow-md transition duration-300 mb-4">Konto erstellen</button>
@@ -103,55 +132,71 @@
             </div>
         </div>
 
-        <div class="flex mb-6 space-x-4">
-            <input type="text" id="newTaskInput" placeholder="Neue Aufgabe hinzufügen..." class="flex-grow p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 transition duration-200">
-            <button id="addTaskBtn" class="bg-green-600 hover:bg-green-700 text-white font-semibold py-3 px-8 rounded-lg shadow-md transition duration-300 ease-in-out">
-                Hinzufügen
-            </button>
-        </div>
-
-        <div class="flex bg-gray-200 rounded-lg overflow-hidden mb-6" id="taskTypeButtonsContainer">
-            <button data-type="Vorteil & Dauer" class="task-type-btn flex-1 py-3 text-center font-semibold rounded-l-lg transition duration-200">
-                Vorteil & Dauer
-            </button>
-            <button data-type="Deadline" class="task-type-btn flex-1 py-3 text-center font-semibold transition duration-200">
-                Deadline
-            </button>
-            <button data-type="Fixer Termin" class="task-type-btn flex-1 py-3 text-center font-semibold rounded-r-lg transition duration-200">
-                Fixer Termin
-            </button>
-        </div>
-
-        <div id="vorteilDauerInputs" class="task-inputs mb-6 hidden">
-             <div class="mb-4">
-                <label for="estimated-duration" class="block text-gray-700 text-sm font-bold mb-2">Geschätzte Dauer (Stunden):</label>
-                <input type="number" id="estimated-duration" value="1" min="0.1" step="0.1" class="w-full p-3 border border-gray-300 rounded-lg">
+        <div class="mb-6">
+            <input type="text" id="newTaskInput" placeholder="Neue Aufgabe hinzufügen..." class="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 transition duration-200 mb-4">
+            
+            <div class="flex space-x-4 mb-4">
+                <input type="text" id="newNotesInput" placeholder="Notizen (optional)..." class="flex-grow p-3 border border-gray-300 rounded-lg">
+                <input type="text" id="newLocationInput" placeholder="Ort (optional, z.B. Unterwegs)" class="w-1/3 p-3 border border-gray-300 rounded-lg">
             </div>
-            <div>
-                <label for="monthly-financial-benefit" class="block text-gray-700 text-sm font-bold mb-2">Monatlicher Finanzvorteil (€, optional):</label>
-                <input type="text" id="monthly-financial-benefit" placeholder="Zahl" class="w-full p-3 border border-gray-300 rounded-lg">
+
+            <div class="flex justify-between items-start space-x-4">
+                <div class="flex bg-gray-200 rounded-lg overflow-hidden" id="taskTypeButtonsContainer">
+                    <button data-type="Vorteil & Dauer" class="task-type-btn py-3 px-4 text-center font-semibold rounded-l-lg transition duration-200">
+                        Vorteil & Dauer
+                    </button>
+                    <button data-type="Deadline" class="task-type-btn py-3 px-4 text-center font-semibold transition duration-200">
+                        Deadline
+                    </button>
+                    <button data-type="Fixer Termin" class="task-type-btn py-3 px-4 text-center font-semibold rounded-r-lg transition duration-200">
+                        Fixer Termin
+                    </button>
+                </div>
+                 <button id="addTaskBtn" class="bg-green-600 hover:bg-green-700 text-white font-semibold py-3 px-8 rounded-lg shadow-md transition duration-300 ease-in-out">
+                    Hinzufügen
+                </button>
             </div>
         </div>
 
-        <div id="deadlineInputs" class="task-inputs mb-6 hidden">
-            <div class="mb-4">
-                <label for="deadline-date" class="block text-gray-700 text-sm font-bold mb-2">Deadline Datum:</label>
-                <input type="date" id="deadline-date" class="w-full p-3 border border-gray-300 rounded-lg">
+        <div id="vorteilDauerInputs" class="task-inputs mb-6 hidden p-4 bg-gray-50 rounded-lg">
+             <div class="mb-4 flex items-center space-x-4">
+                <label class="block text-gray-700 text-sm font-bold w-1/3">Geschätzte Dauer:</label>
+                <div class="flex space-x-2 w-2/3">
+                    <input type="number" id="estimated-duration-h" value="1" min="0" placeholder="Stunden" class="w-1/2 p-3 border border-gray-300 rounded-lg">
+                    <input type="number" id="estimated-duration-m" value="0" min="0" max="59" placeholder="Minuten" class="w-1/2 p-3 border border-gray-300 rounded-lg">
+                </div>
             </div>
-            <div>
-                <label for="deadline-duration" class="block text-gray-700 text-sm font-bold mb-2">Dauer (Stunden):</label>
-                <input type="number" id="deadline-duration" value="1" min="0.1" step="0.1" class="w-full p-3 border border-gray-300 rounded-lg">
+            <div class="flex items-center space-x-4">
+                <label for="monthly-financial-benefit" class="block text-gray-700 text-sm font-bold w-1/3">Monatl. Finanzvorteil (€):</label>
+                <input type="text" id="monthly-financial-benefit" placeholder="Zahl (optional)" class="w-2/3 p-3 border border-gray-300 rounded-lg">
             </div>
         </div>
 
-        <div id="fixerTerminInputs" class="task-inputs mb-6 hidden">
-            <div class="mb-4">
-                <label for="fixed-date" class="block text-gray-700 text-sm font-bold mb-2">Datum des Termins:</label>
-                <input type="date" id="fixed-date" class="w-full p-3 border border-gray-300 rounded-lg">
+        <div id="deadlineInputs" class="task-inputs mb-6 hidden p-4 bg-gray-50 rounded-lg">
+            <div class="mb-4 flex items-center space-x-4">
+                <label for="deadline-date" class="block text-gray-700 text-sm font-bold w-1/3">Deadline Datum:</label>
+                <input type="date" id="deadline-date" class="w-2/3 p-3 border border-gray-300 rounded-lg">
             </div>
-            <div>
-                <label for="fixed-duration" class="block text-gray-700 text-sm font-bold mb-2">Dauer (Stunden):</label>
-                <input type="number" id="fixed-duration" value="1" min="0.1" step="0.1" class="w-full p-3 border border-gray-300 rounded-lg">
+            <div class="flex items-center space-x-4">
+                <label class="block text-gray-700 text-sm font-bold w-1/3">Dauer:</label>
+                 <div class="flex space-x-2 w-2/3">
+                    <input type="number" id="deadline-duration-h" value="1" min="0" placeholder="Stunden" class="w-1/2 p-3 border border-gray-300 rounded-lg">
+                    <input type="number" id="deadline-duration-m" value="0" min="0" max="59" placeholder="Minuten" class="w-1/2 p-3 border border-gray-300 rounded-lg">
+                </div>
+            </div>
+        </div>
+
+        <div id="fixerTerminInputs" class="task-inputs mb-6 hidden p-4 bg-gray-50 rounded-lg">
+            <div class="mb-4 flex items-center space-x-4">
+                <label for="fixed-date" class="block text-gray-700 text-sm font-bold w-1/3">Datum des Termins:</label>
+                <input type="date" id="fixed-date" class="w-2/3 p-3 border border-gray-300 rounded-lg">
+            </div>
+            <div class="flex items-center space-x-4">
+                <label class="block text-gray-700 text-sm font-bold w-1/3">Dauer:</label>
+                 <div class="flex space-x-2 w-2/3">
+                    <input type="number" id="fixed-duration-h" value="1" min="0" placeholder="Stunden" class="w-1/2 p-3 border border-gray-300 rounded-lg">
+                    <input type="number" id="fixed-duration-m" value="0" min="0" max="59" placeholder="Minuten" class="w-1/2 p-3 border border-gray-300 rounded-lg">
+                </div>
             </div>
         </div>
 
@@ -224,15 +269,30 @@
 
             <input type="hidden" id="edit-task-id">
             <input type="hidden" id="edit-task-type">
-            <input type="hidden" id="edit-task-owner-id"> <div class="mb-6">
+            <input type="hidden" id="edit-task-owner-id">
+
+            <div class="mb-6">
                 <label for="edit-description" class="block text-gray-700 text-sm font-bold mb-2">Beschreibung:</label>
                 <input type="text" id="edit-description" class="w-full p-3 border border-gray-300 rounded-lg">
             </div>
 
+            <div class="mb-6">
+                <label for="edit-notes" class="block text-gray-700 text-sm font-bold mb-2">Notizen (Optional):</label>
+                <textarea id="edit-notes" rows="4" class="w-full p-3 border border-gray-300 rounded-lg" placeholder="Zusätzliche Details, Links, Checklisten..."></textarea>
+            </div>
+
+            <div class="mb-6">
+                <label for="edit-location" class="block text-gray-700 text-sm font-bold mb-2">Ort (Optional):</label>
+                <input type="text" id="edit-location" class="w-full p-3 border border-gray-300 rounded-lg" placeholder="z.B. Unterwegs, Büro, Zuhause">
+            </div>
+
              <div id="editVorteilDauerInputs" class="edit-inputs mb-6 hidden">
                 <div class="mb-4">
-                    <label for="edit-estimated-duration" class="block text-gray-700 text-sm font-bold mb-2">Geschätzte Dauer (Stunden):</label>
-                    <input type="number" id="edit-estimated-duration" min="0.1" step="0.1" class="w-full p-3 border border-gray-300 rounded-lg">
+                    <label class="block text-gray-700 text-sm font-bold mb-2">Geschätzte Dauer:</label>
+                    <div class="flex space-x-4">
+                        <input type="number" id="edit-estimated-duration-h" placeholder="Stunden" min="0" step="1" class="w-1/2 p-3 border border-gray-300 rounded-lg">
+                        <input type="number" id="edit-estimated-duration-m" placeholder="Minuten" min="0" max="59" step="1" class="w-1/2 p-3 border border-gray-300 rounded-lg">
+                    </div>
                 </div>
                 <div>
                     <label for="edit-financial-benefit" class="block text-gray-700 text-sm font-bold mb-2">Monatlicher Finanzvorteil (€):</label>
@@ -246,8 +306,11 @@
                     <input type="date" id="edit-deadline-date" class="w-full p-3 border border-gray-300 rounded-lg">
                 </div>
                 <div>
-                    <label for="edit-deadline-duration" class="block text-gray-700 text-sm font-bold mb-2">Dauer (Stunden):</label>
-                    <input type="number" id="edit-deadline-duration" min="0.1" step="0.1" class="w-full p-3 border border-gray-300 rounded-lg">
+                    <label class="block text-gray-700 text-sm font-bold mb-2">Dauer:</label>
+                    <div class="flex space-x-4">
+                        <input type="number" id="edit-deadline-duration-h" placeholder="Stunden" min="0" step="1" class="w-1/2 p-3 border border-gray-300 rounded-lg">
+                        <input type="number" id="edit-deadline-duration-m" placeholder="Minuten" min="0" max="59" step="1" class="w-1/2 p-3 border border-gray-300 rounded-lg">
+                    </div>
                 </div>
             </div>
 
@@ -257,8 +320,11 @@
                     <input type="date" id="edit-fixed-date" class="w-full p-3 border border-gray-300 rounded-lg">
                 </div>
                 <div>
-                    <label for="edit-fixed-duration" class="block text-gray-700 text-sm font-bold mb-2">Dauer (Stunden):</label>
-                    <input type="number" id="edit-fixed-duration" min="0.1" step="0.1" class="w-full p-3 border border-gray-300 rounded-lg">
+                    <label class="block text-gray-700 text-sm font-bold mb-2">Dauer:</label>
+                     <div class="flex space-x-4">
+                        <input type="number" id="edit-fixed-duration-h" placeholder="Stunden" min="0" step="1" class="w-1/2 p-3 border border-gray-300 rounded-lg">
+                        <input type="number" id="edit-fixed-duration-m" placeholder="Minuten" min="0" max="59" step="1" class="w-1/2 p-3 border border-gray-300 rounded-lg">
+                    </div>
                 </div>
             </div>
 
