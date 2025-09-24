@@ -7,7 +7,7 @@ import {
     openModal, closeModal, setActiveTaskType, clearInputs, updateAndGetSettingsFromModal,
     closeEditModal, handleSaveEditedTask, handleDeleteTask, handleClearCompleted,
     // attachFilterInteractions // VORÜBERGEHEND DEAKTIVIERT
-} from './ui-actions.js';
+} from './ui-actions.js'; // VORÜBERGEHEND DEAKTIVIERT
 import { normalizeDate, calculateDecimalHours } from './utils.js';
 import { initializeAuth, showLoadingScreen, showAppScreen } from './auth.js';
 
@@ -81,6 +81,24 @@ function initializeUI() {
     // VORÜBERGEHEND DEAKTIVIERT: Initialisiere Filter-Interaktionen (Logik in ui-actions.js)
     // attachFilterInteractions(); 
     startDayChangeChecker();
+
+    // NEU: Verschiebe die Haupt-Container in das neue Desktop-Layout
+    const appContainer = document.getElementById('app-container');
+    const editModal = document.getElementById('editTaskModal');
+    const mainLayout = document.getElementById('main-layout');
+    const appContentWrapper = document.getElementById('app-content-wrapper');
+
+    if (appContainer && editModal && mainLayout && appContentWrapper) {
+        // Übertrage die Klassen vom alten App-Container auf den neuen Wrapper
+        appContentWrapper.className = appContainer.className;
+        appContainer.className = ''; // Entferne Styling vom Original-Container
+
+        // Verschiebe die Elemente
+        appContentWrapper.appendChild(appContainer);
+        mainLayout.appendChild(editModal);
+
+        console.log("Desktop layout structure prepared.");
+    }
 }
 
 

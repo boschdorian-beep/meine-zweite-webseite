@@ -210,6 +210,15 @@
         <p id="auth-error" class="text-red-500 mt-4 text-center"></p>
     </div>
 
+    <!-- NEU: Haupt-Layout-Container für Desktop-Ansicht (Liste links, Bearbeiten rechts) -->
+    <div id="main-layout" class="w-full max-w-7xl hidden">
+        <!-- Dieser Container wird die Klassen vom app-container übernehmen -->
+        <div id="app-content-wrapper">
+            <!-- Der ursprüngliche app-container wird hier hinein verschoben -->
+        </div>
+        <!-- Das editTaskModal wird hier hinein verschoben -->
+    </div>
+
     <div id="app-container" class="hidden container p-5 md:p-8 max-w-4xl w-full">
         
         <div class="flex justify-between items-center mb-8">
@@ -396,7 +405,7 @@
         </div>
     </div>
 
-    <div id="editTaskModal" class="hidden modal-overlay">
+    <div id="editTaskModal" class="hidden lg:block w-full max-w-lg flex-shrink-0">
         <div class="modal-container max-w-lg">
             
             <div class="modal-header">
