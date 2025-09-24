@@ -1,50 +1,111 @@
 // js/database.js
-import { collection, query, where, getDocs, doc, setDoc, getDoc, deleteDoc, writeBatch } from 'https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js';
+import { collection, query, where, doc, setDoc, deleteDoc, writeBatch, onSnapshot, getDoc, set } from 'https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js';
 import { db } from './firebase-init.js';
 import { state } from './state.js';
 import { WEEKDAYS, getDefaultSettings } from './config.js';
 
+// NEU: Store für aktive Listener (Unsubscribe-Funktionen)
+const activeListeners = {
+    tasks: null,
+    settings: null
+};
 
-// --- TASKS (CRUD for Definitions) ---
+// --- Initialization & Lifecycle ---
 
 /**
- * Lädt alle Aufgabendefinitionen, die dem Benutzer zugewiesen sind.
+ * NEU: Initializes real-time listeners for Tasks and Settings.
+ * @param {function(string, object): void} onUpdateCallback - Callback function (type, data) when updates occur.
  */
-export async function loadTasks() {
-    if (!state.user) return [];
+export function initializeDataListeners(onUpdateCallback) {
+    if (!state.user) return;
 
-    try {
-        const tasksCol = collection(db, "tasks");
-        // Query: Lade alle Tasks, bei denen der aktuelle Benutzer im 'assignedTo' Array ist.
-        const q = query(tasksCol, where("assignedTo", "array-contains", state.user.uid));
-        const snapshot = await getDocs(q);
+    // Detach previous listeners if they exist (safety measure)
+    detachListeners();
 
+    console.log("Attaching Firestore listeners...");
+    const userId = state.user.uid;
+
+    // --- Tasks Listener ---
+    const tasksCol = collection(db, "tasks");
+    // Query: Höre auf alle Tasks, bei denen der aktuelle Benutzer im 'assignedTo' Array ist.
+    const q = query(tasksCol, where("assignedTo", "array-contains", userId));
+
+    // onSnapshot abonniert Änderungen
+    activeListeners.tasks = onSnapshot(q, (snapshot) => {
         const tasks = [];
         snapshot.forEach(doc => {
             const data = doc.data();
-            // Verwende die Firestore ID als primäre ID
             data.id = doc.id;
             tasks.push(data);
         });
-        return tasks;
-    } catch (error) {
-        console.error("Fehler beim Laden der Aufgaben aus Firestore:", error);
-        return [];
-    }
+        console.log("Tasks update received from Firestore.");
+        // Informiere die App über das Update
+        onUpdateCallback('tasks', tasks);
+    }, (error) => {
+        console.error("Error in tasks listener:", error);
+        if (error.code === 'permission-denied') {
+             alert("Zugriff verweigert (Tasks). Bitte überprüfen Sie die Firestore-Sicherheitsregeln.");
+        } else {
+            alert("Fehler bei der Echtzeit-Synchronisierung der Aufgaben. Bitte prüfe die Netzwerkverbindung.");
+        }
+    });
+
+    // --- Settings Listener ---
+    const settingsRef = doc(db, "settings", userId);
+    activeListeners.settings = onSnapshot(settingsRef, async (docSnap) => {
+        if (docSnap.exists()) {
+            const loadedSettings = docSnap.data();
+            const validatedSettings = validateSettings({ ...getDefaultSettings(), ...loadedSettings });
+            console.log("Settings update received from Firestore.");
+            onUpdateCallback('settings', validatedSettings);
+        } else {
+            // Handle case where settings don't exist (e.g. new user)
+            console.log("Settings not found, creating defaults.");
+            const defaultSettings = getDefaultSettings();
+            try {
+                // Erstelle Standardeinstellungen in der DB, falls sie fehlen
+                await setDoc(settingsRef, defaultSettings); 
+            } catch (error) {
+                console.error("Error creating default settings:", error);
+            }
+            // Informiere die App sofort über die Standardeinstellungen
+            onUpdateCallback('settings', defaultSettings);
+        }
+    }, (error) => {
+        console.error("Error in settings listener:", error);
+         if (error.code === 'permission-denied') {
+             alert("Zugriff verweigert (Settings). Bitte überprüfen Sie die Firestore-Sicherheitsregeln.");
+        }
+    });
 }
 
 /**
- * Speichert oder aktualisiert eine einzelne Aufgabendefinition.
- * Gibt die (ggf. neue) Firestore ID zurück.
+ * NEU: Detaches all active listeners (e.g., on logout).
  */
+export function detachListeners() {
+    if (activeListeners.tasks) {
+        console.log("Detaching Tasks listener.");
+        activeListeners.tasks(); // Ruft die Unsubscribe-Funktion auf
+        activeListeners.tasks = null;
+    }
+    if (activeListeners.settings) {
+        console.log("Detaching Settings listener.");
+        activeListeners.settings();
+        activeListeners.settings = null;
+    }
+}
+
+
+// --- TASKS (CRUD for Definitions) ---
+// Die CRUD Operationen bleiben unverändert, da sie die Listener triggern.
+
 export async function saveTaskDefinition(taskDefinition) {
     if (!state.user) return null;
 
     const userId = state.user.uid;
-    // Erstelle eine Kopie für die Datenbank
     const dataToSave = { ...taskDefinition };
 
-    // 1. Metadaten sicherstellen (für Security Rules)
+    // 1. Metadaten sicherstellen
     if (!dataToSave.ownerId) {
         dataToSave.ownerId = userId;
     }
@@ -55,16 +116,15 @@ export async function saveTaskDefinition(taskDefinition) {
     // 2. Speichern
     try {
         let docRef;
-        // Prüfe, ob eine ID existiert und nicht temporär ist (z.B. 'temp-')
         if (dataToSave.id && !dataToSave.id.startsWith('temp-')) {
             // Existierende Aufgabe aktualisieren
             docRef = doc(db, "tasks", dataToSave.id);
-            delete dataToSave.id; // ID nicht im Dokument speichern
+            delete dataToSave.id;
             await setDoc(docRef, dataToSave, { merge: true });
             return docRef.id;
         } else {
             // Neue Aufgabe erstellen
-            delete dataToSave.id; // Temporäre ID entfernen
+            delete dataToSave.id;
             docRef = doc(collection(db, "tasks"));
             await setDoc(docRef, dataToSave);
             return docRef.id;
@@ -75,9 +135,6 @@ export async function saveTaskDefinition(taskDefinition) {
     }
 }
 
-/**
- * Löscht eine einzelne Aufgabendefinition.
- */
 export async function deleteTaskDefinition(taskId) {
     if (!state.user || !taskId) return;
 
@@ -89,9 +146,6 @@ export async function deleteTaskDefinition(taskId) {
     }
 }
 
-/**
- * Löscht alle erledigten Aufgaben des Benutzers (Batch Write).
- */
 export async function clearAllCompletedTasks(completedTaskIds) {
     if (!state.user || completedTaskIds.length === 0) return;
 
@@ -109,7 +163,7 @@ export async function clearAllCompletedTasks(completedTaskIds) {
 }
 
 
-// --- SETTINGS (Unverändert zur vorherigen Version) ---
+// --- SETTINGS Validation ---
 
 // (Validierungslogik unverändert)
 function isValidSlot(slot) {
@@ -144,27 +198,7 @@ function validateSettings(settings) {
     return settings;
 }
 
-export async function loadSettings() {
-    if (!state.user) return getDefaultSettings();
-
-    const settingsRef = doc(db, "settings", state.user.uid);
-
-    try {
-        const docSnap = await getDoc(settingsRef);
-        if (docSnap.exists()) {
-            const loadedSettings = docSnap.data();
-            return validateSettings({ ...getDefaultSettings(), ...loadedSettings });
-        } else {
-            const defaultSettings = getDefaultSettings();
-            await setDoc(settingsRef, defaultSettings);
-            return defaultSettings;
-        }
-    } catch (error) {
-        console.error("Fehler beim Laden der Einstellungen aus Firestore:", error);
-        return getDefaultSettings();
-    }
-}
-
+// saveSettings wird weiterhin benötigt, wenn der Benutzer aktiv speichert
 export async function saveSettings(settings) {
     if (!state.user) return;
 
