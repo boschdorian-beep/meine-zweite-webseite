@@ -1,11 +1,8 @@
 // js/auth.js
-// GEÄNDERT: Importiere sendEmailVerification
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword, onAuthStateChanged, signOut, sendEmailVerification } from 'https://www.gstatic.com/firebasejs/9.23.0/firebase-auth.js';
 import { auth } from './firebase-init.js';
-// db, doc, setDoc, getDoc werden nicht mehr direkt hier benötigt, sondern in collaboration.js
 import { state } from './state.js';
 import { detachListeners } from './database.js';
-// NEU: Importiere Funktionen für das Benutzerprofil
 import { initializeUserProfile, promptForMissingProfileData } from './collaboration.js';
 
 // UI Elements
@@ -16,7 +13,6 @@ const elements = {
     loginView: document.getElementById('login-view'),
     registerView: document.getElementById('register-view'),
     authError: document.getElementById('auth-error'),
-    // Login/Register inputs werden jetzt in den Handlern direkt gelesen
     body: document.body,
 };
 
@@ -30,15 +26,15 @@ export function initializeAuth(onLoginSuccess) {
             // Benutzer ist angemeldet
             state.user = user;
             
-            if (!user.emailVerified) {
+            if (user.email && !user.emailVerified) {
                 console.log("E-Mail noch nicht verifiziert.");
-                // Hinweis: Aktuell wird der Zugang erlaubt, aber man könnte ihn hier auch blockieren.
+                // Hinweis: Aktuell wird der Zugang erlaubt.
             }
 
-            // GEÄNDERT: Sicherstellen, dass das Profil existiert und vollständig ist
+            // Sicherstellen, dass das Profil existiert und vollständig ist
             const profile = await initializeUserProfile(user);
             
-            // NEU: Prüfe, ob Daten fehlen (Migration für bestehende Nutzer)
+            // Prüfe, ob Daten fehlen (Migration für bestehende Nutzer)
             if (!profile || !profile.displayName || !profile.shortName) {
                 // Dies blockiert die Ausführung, bis der Nutzer die Daten eingegeben hat.
                 await promptForMissingProfileData(user);
@@ -70,14 +66,15 @@ function handleLogoutCleanup() {
     // 1. Beende Firestore Listener
     detachListeners();
     
-    // 2. Lösche lokalen State (verhindert Datenlecks zwischen Usern)
+    // 2. Lösche lokalen State
     state.user = null;
-    state.userProfile = null; // NEU
+    state.userProfile = null;
     state.tasks = [];
     state.schedule = [];
     state.settings = {};
+    // Reset filters (wichtig für Phase 2)
+    state.filters = { prioritizedLocation: null, prioritizedUsers: [] };
 }
-
 
 // UI Management Funktionen
 export function showLoadingScreen() {
@@ -95,13 +92,13 @@ function showLoginScreen() {
 }
 
 export function showAppScreen() {
-    // NEU: Sicherstellen, dass das Profil vollständig geladen ist, bevor die App angezeigt wird
+    // Sicherstellen, dass das Profil vollständig geladen ist
     if (!state.userProfile || !state.userProfile.shortName) {
         console.log("Warte auf vollständiges Profil...");
         return;
     }
 
-    // Nur anzeigen wenn nicht bereits sichtbar, um Flackern zu vermeiden
+    // Nur anzeigen wenn nicht bereits sichtbar
     if (elements.appContainer.classList.contains('hidden')) {
         elements.loadingSpinner.classList.add('hidden');
         elements.authContainer.classList.add('hidden');
@@ -122,6 +119,8 @@ function setupAuthUIEvents() {
         const email = document.getElementById('login-email').value.toLowerCase().trim();
         const password = document.getElementById('login-password').value;
         
+        if (!email || !password) return;
+
         showLoadingScreen();
         try {
             await signInWithEmailAndPassword(auth, email, password);
@@ -132,14 +131,13 @@ function setupAuthUIEvents() {
         }
     });
 
-    // Register (Stark überarbeitet)
+    // Register
     document.getElementById('register-btn').addEventListener('click', async () => {
         displayError('');
 
         const email = document.getElementById('register-email').value.toLowerCase().trim();
         const password = document.getElementById('register-password').value;
         const displayName = document.getElementById('register-displayname').value.trim();
-        // Kürzel wird normalisiert (Großbuchstaben, max 5 Zeichen wie im HTML definiert)
         const shortName = document.getElementById('register-shortname').value.trim().toUpperCase();
 
         if (!displayName || !shortName) {
@@ -152,16 +150,15 @@ function setupAuthUIEvents() {
             const userCredential = await createUserWithEmailAndPassword(auth, email, password);
             const user = userCredential.user;
 
-            // NEU: Sende E-Mail Verifizierung
+            // Sende E-Mail Verifizierung
             try {
                 await sendEmailVerification(user);
                 alert("Registrierung erfolgreich! Bitte überprüfe dein E-Mail-Postfach (auch Spam-Ordner), um deine Adresse zu bestätigen.");
             } catch (error) {
                 console.error("Fehler beim Senden der Verifizierungs-E-Mail:", error);
-                // Wir blockieren die Registrierung nicht, falls das Senden fehlschlägt.
             }
 
-            // NEU: Erstelle das Benutzerprofil in Firestore mit den zusätzlichen Daten
+            // Erstelle das Benutzerprofil in Firestore
             await initializeUserProfile(user, { displayName, shortName });
 
             // onAuthStateChanged kümmert sich um den Rest
@@ -172,12 +169,12 @@ function setupAuthUIEvents() {
         }
     });
 
-    // Logout (Der onAuthStateChanged Listener kümmert sich um das Cleanup)
+    // Logout
     document.getElementById('logout-btn').addEventListener('click', () => {
         signOut(auth);
     });
 
-    // View toggles (Unverändert)
+    // View toggles
     document.getElementById('show-register').addEventListener('click', (e) => {
         e.preventDefault();
         elements.loginView.classList.add('hidden');
