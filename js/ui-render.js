@@ -19,6 +19,8 @@ const elements = {
     noFutureTasks: document.getElementById('noFutureTasks'),
     noCompletedTasks: document.getElementById('noCompletedTasks'),
     todayAvailableTime: document.getElementById('todayAvailableTime'),
+    // NEU: Container für Ortsverwaltung
+    locationsListContainer: document.getElementById('locations-list'),
     tomorrowAvailableTime: document.getElementById('tomorrowAvailableTime'),
     futureAvailableTime: document.getElementById('futureAvailableTime'),
     dailyTimeslotsContainer: document.getElementById('dailyTimeslotsContainer'),
@@ -40,6 +42,7 @@ export async function renderApp() {
     await renderSchedule();
     await renderCompletedTasks();
     await renderFilterBar(); // NEU: Filterleiste rendern
+    populateLocationDropdowns(); // NEU: Dropdowns befüllen
     updateAvailableTimeDisplays();
     // (Toggle State Update unverändert)
     if (elements.toggleDragDrop) {
@@ -47,6 +50,29 @@ export async function renderApp() {
     }
     // Interaktionen müssen nach dem Rendern angehängt werden
     attachTaskInteractions();
+}
+
+/**
+ * NEU: Befüllt die Location-Dropdowns mit den Orten aus den Einstellungen.
+ */
+function populateLocationDropdowns(selectedLocation = null) {
+    const locations = state.settings.locations || [];
+    const newLocationSelect = document.getElementById('newLocationSelect');
+    const editLocationSelect = document.getElementById('edit-location-select');
+
+    [newLocationSelect, editLocationSelect].forEach(select => {
+        if (!select) return;
+        const currentValue = selectedLocation || select.value;
+        select.innerHTML = '<option value="">Kein Ort</option>'; // Standardoption
+        locations.forEach(location => {
+            const option = document.createElement('option');
+            option.value = location;
+            option.textContent = location;
+            select.appendChild(option);
+        });
+        // Setze den zuvor ausgewählten Wert wieder
+        select.value = currentValue;
+    });
 }
 
 /**
@@ -439,9 +465,33 @@ function updateAvailableTimeDisplays() {
 // (renderSettingsModal, renderDailyTimeslots, createTimeslotElement bleiben unverändert)
 export function renderSettingsModal(settingsToRender) {
      if (!settingsToRender || !settingsToRender.dailyTimeSlots) return;
-
     elements.calcPriorityCheckbox.checked = settingsToRender.calcPriority;
+    renderLocationsManagement(settingsToRender.locations || []); // NEU
     renderDailyTimeslots(settingsToRender);
+}
+
+/**
+ * NEU: Rendert die UI zur Verwaltung der Orte im Einstellungs-Modal.
+ */
+function renderLocationsManagement(locations) {
+    const container = elements.locationsListContainer;
+    if (!container) return;
+
+    container.innerHTML = '';
+    if (locations.length === 0) {
+        container.innerHTML = '<p class="text-sm text-gray-500 italic">Noch keine Orte angelegt.</p>';
+        return;
+    }
+
+    locations.forEach(location => {
+        const item = document.createElement('div');
+        item.className = 'location-management-item';
+        item.innerHTML = `
+            <span>${location}</span>
+            <button data-location="${location}" class="remove-location-btn" title="Ort löschen">&times;</button>
+        `;
+        container.appendChild(item);
+    });
 }
 
 function renderDailyTimeslots(settingsToRender) {

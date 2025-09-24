@@ -12,6 +12,8 @@ export function getDefaultSettings() {
         calcPriority: true,
         // autoPriority true bedeutet "Manuell Sortieren" ist AUS
         autoPriority: true, 
-        dailyTimeSlots: defaultDailyTimeSlots
+        dailyTimeSlots: defaultDailyTimeSlots,
+        // NEU: Leere Liste für Orte
+        locations: []
     };
 }

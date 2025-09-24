@@ -3,7 +3,7 @@ import { state } from './state.js';
 import { WEEKDAYS } from './config.js';
 import { toggleTaskCompleted, handleTaskDrop, updateTaskDetails, getOriginalTotalDuration, recalculateSchedule } from './scheduler.js';
 // NEU: Importiere clearAllCompletedTasks und deleteTaskDefinition direkt aus database.js
-import { clearAllCompletedTasks, deleteTaskDefinition } from './database.js';
+import { clearAllCompletedTasks, deleteTaskDefinition, saveSettings } from './database.js';
 import { renderApp, renderSettingsModal } from './ui-render.js';
 // NEU: Importiere Hilfsfunktionen für Zeit und Parsing
 import { parseDateString, calculateDecimalHours } from './utils.js';
@@ -286,7 +286,8 @@ export async function openEditModal(taskId) {
     document.getElementById('edit-description').value = task.description;
     // NEU: Notizen und Ort
     document.getElementById('edit-notes').value = task.notes || '';
-    document.getElementById('edit-location').value = task.location || '';
+    // Wähle den Ort im Dropdown aus
+    document.getElementById('edit-location-select').value = task.location || '';
 
     document.querySelectorAll('.edit-inputs').forEach(el => el.classList.add('hidden'));
 
@@ -498,7 +499,7 @@ export async function handleSaveEditedTask() {
     // NEU: Lese Zuweisungen, Notizen und Ort
     const assignedUids = modalState.editModal.assignedUsers.map(u => u.uid);
     const notes = document.getElementById('edit-notes').value.trim();
-    const location = document.getElementById('edit-location').value.trim();
+    const location = document.getElementById('edit-location-select').value;
 
     const updatedDetails = {
         description: description,
@@ -588,6 +589,10 @@ export function openModal() {
     // Kopiere aktuelle Einstellungen in den temporären Zustand
     modalState.tempSettings = JSON.parse(JSON.stringify(state.settings));
     renderSettingsModal(modalState.tempSettings);
+    // NEU: Dropdowns mit den aktuellen Orten befüllen
+    // (wird indirekt durch renderApp() gemacht, aber hier explizit für Klarheit)
+    // populateLocationDropdowns();
+
     const modal = document.getElementById('settingsModal');
     modal.classList.remove('hidden');
     modal.classList.add('flex');
@@ -603,6 +608,11 @@ export function closeModal() {
 
 export function updateAndGetSettingsFromModal() {
     modalState.tempSettings.calcPriority = document.getElementById('calcPriorityCheckbox').checked;
+
+    // NEU: Lese die Orte aus dem temporären Zustand. Die Bearbeitung des tempSettings-Objekts
+    // passiert direkt in den Event-Listenern (handleLocationAction).
+    // Hier muss nichts extra gelesen werden, da das Objekt bereits aktuell ist.
+
 
     WEEKDAYS.forEach(dayName => {
         const dayTimeslotsElements = document.getElementById(`timeslots-${dayName}`);
@@ -631,11 +641,44 @@ export function updateAndGetSettingsFromModal() {
 
 function attachModalEventListeners() {
     const container = document.getElementById('dailyTimeslotsContainer');
+    const settingsModal = document.getElementById('settingsModal');
+
     // Entferne alte Listener, um Doppelungen zu vermeiden
     container.removeEventListener('click', handleTimeslotAction);
     container.addEventListener('click', handleTimeslotAction);
+
+    // NEU: Listener für die Ortsverwaltung
+    settingsModal.removeEventListener('click', handleLocationAction);
+    settingsModal.addEventListener('click', handleLocationAction);
 }
 
+/**
+ * NEU: Verarbeitet Aktionen in der Ortsverwaltung (Hinzufügen/Löschen).
+ */
+function handleLocationAction(event) {
+    const addBtn = event.target.closest('#add-location-btn');
+    const removeBtn = event.target.closest('.remove-location-btn');
+
+    if (addBtn) {
+        const input = document.getElementById('new-location-input');
+        const newLocation = input.value.trim();
+        if (newLocation && !modalState.tempSettings.locations.includes(newLocation)) {
+            modalState.tempSettings.locations.push(newLocation);
+            modalState.tempSettings.locations.sort(); // Alphabetisch sortieren
+            input.value = '';
+            renderSettingsModal(modalState.tempSettings); // UI neu rendern
+        }
+    }
+
+    if (removeBtn) {
+        const locationToRemove = removeBtn.dataset.location;
+        modalState.tempSettings.locations = modalState.tempSettings.locations.filter(
+            loc => loc !== locationToRemove
+        );
+        renderSettingsModal(modalState.tempSettings); // UI neu rendern
+    }
+}
+ 
 function handleTimeslotAction(event) {
     // Finde den Button, der geklickt wurde (oder das Icon darin)
     const target = event.target.closest('button'); 
@@ -697,8 +740,8 @@ export function setActiveTaskType(button) {
 // GEÄNDERT: Setzt neue Felder zurück
 export function clearInputs() {
     document.getElementById('newTaskInput').value = '';
-    document.getElementById('newNotesInput').value = '';
-    document.getElementById('newLocationInput').value = '';
+    document.getElementById('newNotesInput').value = ''; 
+    document.getElementById('newLocationSelect').value = ''; // Dropdown zurücksetzen
 
     // Setze Stunden auf 1, Minuten auf 0 (Standard)
     document.getElementById('estimated-duration-h').value = '1';

@@ -188,7 +188,7 @@ async function handleAddTask() {
 
     // Lese Notizen und Ort
     const notes = document.getElementById('newNotesInput').value.trim();
-    const location = document.getElementById('newLocationInput').value.trim();
+    const location = document.getElementById('newLocationSelect').value;
 
     // Erstelle die Aufgabendefinition
     const taskDefinition = {
@@ -253,6 +253,9 @@ async function handleSaveSettings() {
 
     // Aktualisiere den lokalen Zustand (für sofortiges Feedback)
     Object.assign(state.settings, newSettings);
+
+    // NEU: Da sich die Orte geändert haben könnten, müssen die Dropdowns aktualisiert werden.
+    // renderApp() kümmert sich darum.
 
     // 1. Speichern (async).
     await saveSettings(state.settings);

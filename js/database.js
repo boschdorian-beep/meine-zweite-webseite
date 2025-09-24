@@ -176,6 +176,14 @@ function validateSettings(settings) {
         }
     });
     return settings;
+
+    // NEU: Locations validieren
+    if (!Array.isArray(settings.locations)) {
+        settings.locations = defaults.locations;
+    } else {
+        // Stelle sicher, dass es nur eindeutige, getrimmte Strings sind und sortiere sie
+        settings.locations = [...new Set(settings.locations.map(loc => String(loc).trim()).filter(Boolean))].sort();
+    }
 }
 
 export async function saveSettings(settings) {
