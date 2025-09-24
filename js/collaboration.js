@@ -1,21 +1,20 @@
 // js/collaboration.js
 import { db } from './firebase-init.js';
-// Wir benötigen documentId für die effiziente Abfrage nach IDs
 import { collection, query, where, getDocs, doc, getDoc, setDoc, documentId, limit } from 'https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js';
 import { state } from './state.js';
 
-// NEU: Cache für geladene Benutzerprofile (verhindert unnötige Firestore Reads)
+// Cache für geladene Benutzerprofile
 const userCache = {};
 
 /**
- * NEU: Stellt sicher, dass das Benutzerprofil in Firestore existiert, initialisiert ist und im State/Cache liegt.
- * Ersetzt ensureUserProfile aus auth.js.
+ * Stellt sicher, dass das Benutzerprofil in Firestore existiert, initialisiert ist und im State/Cache liegt.
  */
 export async function initializeUserProfile(user, additionalData = {}) {
     if (!user) return null;
 
     const userRef = doc(db, "users", user.uid);
-    const normalizedEmail = user.email.toLowerCase().trim();
+    // Sicherstellen, dass user.email existiert
+    const normalizedEmail = user.email ? user.email.toLowerCase().trim() : null;
     
     try {
         const docSnap = await getDoc(userRef);
@@ -25,17 +24,12 @@ export async function initializeUserProfile(user, additionalData = {}) {
         const profileData = {
             uid: user.uid,
             email: normalizedEmail,
-            // Verwende neue Daten (bei Registrierung), bestehende Daten (bei Login) oder Fallbacks
             displayName: additionalData.displayName || existingData.displayName || null,
-            // Kürzel wird auf max 5 Zeichen begrenzt und in Großbuchstaben gespeichert
             shortName: (additionalData.shortName || existingData.shortName || null)?.toUpperCase().substring(0, 5),
         };
 
-        // Speichern/Aktualisieren in Firestore, wenn:
-        // 1. Dokument nicht existiert (Neuer Nutzer)
-        // 2. Neue Daten übergeben wurden (Registrierung oder Profil-Update)
-        // 3. Die E-Mail im bestehenden Dokument nicht normalisiert ist (Update alter Profile)
-        if (!docSnap.exists() || Object.keys(additionalData).length > 0 || existingData.email !== normalizedEmail) {
+        // Speichern/Aktualisieren in Firestore
+        if (!docSnap.exists() || Object.keys(additionalData).length > 0 || (normalizedEmail && existingData.email !== normalizedEmail)) {
             console.log("Aktualisiere oder erstelle User Profil in DB...");
             await setDoc(userRef, profileData, { merge: true });
         }
@@ -52,13 +46,11 @@ export async function initializeUserProfile(user, additionalData = {}) {
 }
 
 /**
- * NEU: Fordert bestehende Benutzer auf, fehlende Profildaten nachzutragen (via Browser-Prompt).
- * Migration für Nutzer, die sich vor dem Update registriert haben.
+ * Fordert bestehende Benutzer auf, fehlende Profildaten nachzutragen.
  */
 export async function promptForMissingProfileData(user) {
     alert("Willkommen zurück! Wir haben neue Funktionen hinzugefügt. Bitte vervollständige kurz dein Profil.");
     
-    // Erzwinge Eingabe mittels while-Schleife
     let displayName = null;
     while (!displayName) {
         displayName = prompt("Bitte gib deinen Namen ein (z.B. Max Mustermann):");
@@ -69,15 +61,17 @@ export async function promptForMissingProfileData(user) {
         shortName = prompt("Bitte gib ein Kürzel ein (z.B. MM), maximal 5 Zeichen:");
     }
 
+    // Fallback, falls user.email nicht verfügbar ist
+    const fallbackName = user.email ? user.email.split('@')[0] : 'User';
+    const fallbackShortName = user.email ? user.email.substring(0, 2).toUpperCase() : 'US';
+
     if (displayName && shortName) {
-        // initializeUserProfile kümmert sich um die Speicherung und das Update des States.
         await initializeUserProfile(user, { displayName, shortName });
     } else {
         // Fallback (sollte durch while nicht passieren)
-        alert("Profilaktualisierung fehlgeschlagen. Standardwerte werden verwendet.");
         await initializeUserProfile(user, { 
-            displayName: user.email.split('@')[0], 
-            shortName: user.email.substring(0, 2).toUpperCase() 
+            displayName: fallbackName, 
+            shortName: fallbackShortName
         });
     }
 }
@@ -91,7 +85,6 @@ export async function searchUsers(searchTerm) {
     const normalizedTerm = searchTerm.toLowerCase().trim();
     const usersRef = collection(db, "users");
 
-    // Firestore Prefix Query: Suche alles von searchTerm bis zum nächsten logischen Zeichen ('\uf8ff').
     const q = query(
         usersRef,
         where("email", ">=", normalizedTerm),
@@ -104,19 +97,15 @@ export async function searchUsers(searchTerm) {
         const results = [];
         snapshot.forEach(doc => {
             const data = doc.data();
-            // Füge gefundene Benutzer zum Cache hinzu
             userCache[doc.id] = data;
 
-            // Sich selbst nicht anzeigen
             if (data.uid !== state.user.uid) {
-                // GEÄNDERT: Gebe das vollständige Profil zurück
                 results.push(data);
             }
         });
         return results;
     } catch (error) {
         console.error("Fehler bei der Benutzersuche:", error);
-        // Wenn der Index fehlt, wird dieser Fehler geworfen.
         if (error.code === 'failed-precondition' || error.code === 'permission-denied') {
             alert("Fehler bei der Benutzersuche. Bitte prüfen Sie die Firestore-Indizes und Sicherheitsregeln (siehe Konsole für Details).");
         }
@@ -153,7 +142,6 @@ export async function getUsersByIds(uids) {
         }
 
         for (const batch of batches) {
-            // WICHTIG: Wir fragen direkt die Dokument-IDs ab (performanter als where("uid", "in", ...))
             const q = query(collection(db, "users"), where(documentId(), "in", batch));
             const querySnapshot = await getDocs(q);
             querySnapshot.forEach(doc => {
@@ -171,11 +159,9 @@ export async function getUsersByIds(uids) {
 }
 
 /**
- * NEU: Holt die Kürzel für eine Liste von UIDs, exklusive des aktuellen Benutzers.
- * Wird für die Anzeige in der Aufgabenliste verwendet.
+ * Holt die Kürzel für eine Liste von UIDs, exklusive des aktuellen Benutzers.
  */
 export async function getShortNamesForUids(uids) {
-    // Wenn nur ein (oder kein) Nutzer zugewiesen ist, gibt es nichts anzuzeigen.
     if (!uids || uids.length <= 1) return [];
 
     // Lade Profile (nutzt Cache)
@@ -186,9 +172,46 @@ export async function getShortNamesForUids(uids) {
         .filter(uid => uid !== currentUserId) // Eigenes Kürzel nicht anzeigen
         .map(uid => {
             const profile = profiles[uid];
-            // Verwende Kürzel oder Fallback (ersten 2 Buchstaben der E-Mail), falls Profil nicht geladen werden konnte
+            // Verwende Kürzel oder Fallback
             return profile && profile.shortName ? profile.shortName : (profile && profile.email ? profile.email.substring(0, 2).toUpperCase() : '??');
         });
 
     return shortNames;
+}
+
+/**
+ * NEU: Lädt alle Benutzerprofile, die in den aktuellen Tasks vorkommen (Teammitglieder).
+ * Wird verwendet, um die Filterleiste zu füllen.
+ */
+export async function getAllUserProfilesInTasks() {
+    // 1. Sammle alle eindeutigen UIDs aus state.tasks (außer dem aktuellen Benutzer)
+    const currentUserId = state.user ? state.user.uid : null;
+    const allUids = new Set();
+    
+    // Betrachte nur aktive Tasks für die Filterleiste
+    const activeTasks = state.tasks.filter(t => !t.completed);
+
+    activeTasks.forEach(task => {
+        if (task.assignedTo) {
+            task.assignedTo.forEach(uid => {
+                if (uid !== currentUserId) {
+                    allUids.add(uid);
+                }
+            });
+        }
+    });
+
+    if (allUids.size === 0) {
+        return [];
+    }
+
+    // 2. Lade die Profile (nutzt Caching)
+    const profilesMap = await getUsersByIds([...allUids]);
+
+    // 3. Konvertiere in ein Array und sortiere alphabetisch
+    // Filtert null Werte, falls ein Profil nicht geladen werden konnte
+    const profilesArray = Object.values(profilesMap).filter(p => p);
+    profilesArray.sort((a, b) => (a.displayName || a.email).localeCompare(b.displayName || b.email));
+
+    return profilesArray;
 }
