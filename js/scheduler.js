@@ -224,9 +224,11 @@ function calculateFixedTaskDates(tasks) {
             const originalDeadline = parseDateString(task.deadlineDate);
             if (originalDeadline) {
                 // Berechne das späteste Startdatum (Deadline minus Dauer)
-                // Wir nutzen Math.floor(duration), um sicherzustellen, dass wir genug ganze Tage Puffer haben.
+                // KORREKTUR VOM USER: Jede Stunde Dauer soll einen Tag Puffer geben.
+                // Wir runden die Dauer auf die nächste ganze Stunde auf, um sicherzustellen, dass z.B. 1.5 Stunden 2 Tage Puffer geben.
                 const bufferedDeadline = new Date(originalDeadline);
-                bufferedDeadline.setDate(originalDeadline.getDate() - Math.floor(duration));
+                const bufferInDays = Math.ceil(duration);
+                bufferedDeadline.setDate(originalDeadline.getDate() - bufferInDays);
 
                 // Wenn das errechnete Startdatum bereits vorbei ist, aber die Deadline noch nicht, starte Heute.
                 if (bufferedDeadline.getTime() < today.getTime() && originalDeadline.getTime() >= today.getTime()) {

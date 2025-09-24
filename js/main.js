@@ -6,8 +6,7 @@ import { renderApp } from './ui-render.js';
 import {
     openModal, closeModal, setActiveTaskType, clearInputs, updateAndGetSettingsFromModal,
     closeEditModal, handleSaveEditedTask, handleDeleteTask, handleClearCompleted,
-    // NEU: Importiere attachFilterInteractions
-    attachFilterInteractions
+    // attachFilterInteractions // VORÜBERGEHEND DEAKTIVIERT
 } from './ui-actions.js';
 import { normalizeDate, calculateDecimalHours } from './utils.js';
 import { initializeAuth, showLoadingScreen, showAppScreen } from './auth.js';
@@ -79,8 +78,8 @@ function initializeUI() {
 
     // Attach global event listeners
     attachEventListeners();
-    // NEU: Initialisiere Filter-Interaktionen (Logik in ui-actions.js)
-    attachFilterInteractions(); 
+    // VORÜBERGEHEND DEAKTIVIERT: Initialisiere Filter-Interaktionen (Logik in ui-actions.js)
+    // attachFilterInteractions(); 
     startDayChangeChecker();
 }
 
