@@ -541,15 +541,13 @@ export function openModal() {
     modalState.tempSettings = JSON.parse(JSON.stringify(state.settings));
     renderSettingsModal(modalState.tempSettings);
     const modal = document.getElementById('settingsModal');
-    modal.classList.remove('hidden');
-    modal.classList.add('flex');
+    modal.classList.remove('hidden'); // Einfach einblenden
     attachModalEventListeners();
 }
 
 export function closeModal() {
     const modal = document.getElementById('settingsModal');
     modal.classList.add('hidden');
-    modal.classList.remove('flex');
     modalState.tempSettings = {};
 }
 
