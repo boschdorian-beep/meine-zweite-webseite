@@ -101,13 +101,11 @@ export function showAppScreen() {
         return;
     }
 
-    const mainLayout = document.getElementById('main-layout');
     // Nur anzeigen wenn nicht bereits sichtbar, um Flackern zu vermeiden
-    if (mainLayout && mainLayout.classList.contains('hidden')) {
+    if (elements.appContainer.classList.contains('hidden')) {
         elements.loadingSpinner.classList.add('hidden');
         elements.authContainer.classList.add('hidden');
-        mainLayout.classList.remove('hidden');
-        mainLayout.classList.add('lg:flex', 'lg:gap-8'); // Aktiviere Flexbox-Layout auf Desktop
+        elements.appContainer.classList.remove('hidden');
         elements.body.classList.add('app-layout');
     }
 }

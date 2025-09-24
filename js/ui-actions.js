@@ -270,7 +270,8 @@ export async function openEditModal(taskId) {
 
     // 3. Zeige das Modal und initialisiere die Kollaborations-UI
     const modal = document.getElementById('editTaskModal');
-    modal.classList.remove('hidden'); // Einfach einblenden
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
     
     setupCollaborationUIEvents();
     // Initial leere Liste rendern, während Profile laden
@@ -429,7 +430,8 @@ function renderAssignedUsers() {
 
 export function closeEditModal() {
     const modal = document.getElementById('editTaskModal');
-    modal.classList.add('hidden'); // Einfach ausblenden
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
     // NEU: Modal-Zustand zurücksetzen
     modalState.editModal = { assignedUsers: [], ownerId: null };
     document.getElementById('user-search-input').value = '';
@@ -541,13 +543,15 @@ export function openModal() {
     modalState.tempSettings = JSON.parse(JSON.stringify(state.settings));
     renderSettingsModal(modalState.tempSettings);
     const modal = document.getElementById('settingsModal');
-    modal.classList.remove('hidden'); // Einfach einblenden
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
     attachModalEventListeners();
 }
 
 export function closeModal() {
     const modal = document.getElementById('settingsModal');
     modal.classList.add('hidden');
+    modal.classList.remove('flex');
     modalState.tempSettings = {};
 }
 
