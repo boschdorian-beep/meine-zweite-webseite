@@ -3,8 +3,10 @@ import { createUserWithEmailAndPassword, signInWithEmailAndPassword, onAuthState
 import { auth, db } from './firebase-init.js';
 import { doc, setDoc, getDoc } from 'https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js';
 import { state } from './state.js';
+// NEU: Importiere detachListeners
+import { detachListeners } from './database.js';
 
-// UI Elements
+// UI Elements (Unverändert)
 const elements = {
     loadingSpinner: document.getElementById('loading-spinner'),
     authContainer: document.getElementById('auth-container'),
@@ -28,31 +30,51 @@ export function initializeAuth(onLoginSuccess) {
         if (user) {
             // Benutzer ist angemeldet
             state.user = user;
-            // Sicherstellen, dass das Profil in Firestore existiert (für spätere Kollaboration)
+            // Sicherstellen, dass das Profil existiert (für Kollaboration)
             await ensureUserProfile(user);
-            // Rufe den Callback auf, um die App zu laden (main.js)
+            // Rufe den Callback auf (main.js startet dann die Daten-Listener)
             onLoginSuccess();
         } else {
             // Benutzer ist abgemeldet
-            state.user = null;
+            console.log("User logged out.");
+            // NEU: Cleanup durchführen
+            handleLogoutCleanup();
             // Zeige Login-Bildschirm
             showLoginScreen();
         }
     });
 }
 
+/**
+ * NEU: Führt Cleanup-Aufgaben beim Logout durch.
+ */
+function handleLogoutCleanup() {
+    // 1. Beende Firestore Listener
+    detachListeners();
+    
+    // 2. Lösche lokalen State (verhindert Datenlecks zwischen Usern)
+    state.user = null;
+    state.tasks = [];
+    state.schedule = [];
+    state.settings = {};
+}
+
+
 // Stellt sicher, dass ein Eintrag in der 'users' Collection existiert
+// GEÄNDERT: Normalisiert E-Mail zu Lowercase und aktualisiert bestehende Profile
 async function ensureUserProfile(user) {
     const userRef = doc(db, "users", user.uid);
+    const normalizedEmail = user.email.toLowerCase().trim();
     try {
         const docSnap = await getDoc(userRef);
-        if (!docSnap.exists()) {
-            console.log("Erstelle Benutzerprofil in Firestore...");
+        // Prüfe ob Profil existiert ODER ob die E-Mail nicht lowercase ist (Update alter Profile)
+        if (!docSnap.exists() || (docSnap.exists() && docSnap.data().email !== normalizedEmail)) {
+            console.log("Erstelle oder aktualisiere Benutzerprofil in Firestore...");
             await setDoc(userRef, {
                 uid: user.uid,
-                email: user.email,
-                createdAt: new Date()
-            });
+                email: normalizedEmail, 
+                updatedAt: new Date()
+            }, { merge: true }); // merge: true ist wichtig für Updates
         }
     } catch (error) {
         console.error("Fehler beim Sicherstellen des Benutzerprofils:", error);
@@ -76,11 +98,13 @@ function showLoginScreen() {
 }
 
 export function showAppScreen() {
-    elements.loadingSpinner.classList.add('hidden');
-    elements.authContainer.classList.add('hidden');
-    elements.appContainer.classList.remove('hidden');
-    // Wechsle das Body-Layout für die App-Ansicht
-    elements.body.classList.add('app-layout');
+    // Nur anzeigen wenn nicht bereits sichtbar, um Flackern zu vermeiden
+    if (elements.appContainer.classList.contains('hidden')) {
+        elements.loadingSpinner.classList.add('hidden');
+        elements.authContainer.classList.add('hidden');
+        elements.appContainer.classList.remove('hidden');
+        elements.body.classList.add('app-layout');
+    }
 }
 
 function displayError(message) {
@@ -88,12 +112,15 @@ function displayError(message) {
 }
 
 // Event Handlers
+// GEÄNDERT: Normalisiert E-Mails bei Login/Register
 function setupAuthUIEvents() {
     // Login
     document.getElementById('login-btn').addEventListener('click', async () => {
         displayError('');
         try {
-            await signInWithEmailAndPassword(auth, elements.loginEmail.value, elements.loginPassword.value);
+            // E-Mail wird normalisiert
+            const email = elements.loginEmail.value.toLowerCase().trim();
+            await signInWithEmailAndPassword(auth, email, elements.loginPassword.value);
         } catch (error) {
             displayError(`Login fehlgeschlagen: ${error.message}`);
         }
@@ -103,18 +130,20 @@ function setupAuthUIEvents() {
     document.getElementById('register-btn').addEventListener('click', async () => {
         displayError('');
         try {
-            await createUserWithEmailAndPassword(auth, elements.registerEmail.value, elements.registerPassword.value);
+            // E-Mail wird normalisiert
+            const email = elements.registerEmail.value.toLowerCase().trim();
+            await createUserWithEmailAndPassword(auth, email, elements.registerPassword.value);
         } catch (error) {
             displayError(`Registrierung fehlgeschlagen: ${error.message}`);
         }
     });
 
-    // Logout
+    // Logout (Der onAuthStateChanged Listener kümmert sich um das Cleanup)
     document.getElementById('logout-btn').addEventListener('click', () => {
         signOut(auth);
     });
 
-    // View toggles
+    // View toggles (Unverändert)
     document.getElementById('show-register').addEventListener('click', (e) => {
         e.preventDefault();
         elements.loginView.classList.add('hidden');
