@@ -163,7 +163,6 @@ function handleDragOver(e) {
     zone.classList.add('drag-over-zone');
 
     const targetItem = e.target.closest('.task-item');
-
     document.querySelectorAll('.task-item').forEach(item => {
         item.classList.remove('drag-over-top', 'drag-over-bottom');
     });
