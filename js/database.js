@@ -1,10 +1,11 @@
 // js/database.js
-import { collection, query, where, doc, setDoc, deleteDoc, writeBatch, onSnapshot, getDoc, set } from 'https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js';
+// KORRIGIERT: 'set' wurde aus dem Import entfernt.
+import { collection, query, where, doc, setDoc, deleteDoc, writeBatch, onSnapshot, getDoc } from 'https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js';
 import { db } from './firebase-init.js';
 import { state } from './state.js';
 import { WEEKDAYS, getDefaultSettings } from './config.js';
 
-// NEU: Store für aktive Listener (Unsubscribe-Funktionen)
+// Store für aktive Listener (Unsubscribe-Funktionen)
 const activeListeners = {
     tasks: null,
     settings: null
@@ -13,7 +14,7 @@ const activeListeners = {
 // --- Initialization & Lifecycle ---
 
 /**
- * NEU: Initializes real-time listeners for Tasks and Settings.
+ * Initializes real-time listeners for Tasks and Settings.
  * @param {function(string, object): void} onUpdateCallback - Callback function (type, data) when updates occur.
  */
 export function initializeDataListeners(onUpdateCallback) {
@@ -80,7 +81,7 @@ export function initializeDataListeners(onUpdateCallback) {
 }
 
 /**
- * NEU: Detaches all active listeners (e.g., on logout).
+ * Detaches all active listeners (e.g., on logout).
  */
 export function detachListeners() {
     if (activeListeners.tasks) {
@@ -97,7 +98,6 @@ export function detachListeners() {
 
 
 // --- TASKS (CRUD for Definitions) ---
-// Die CRUD Operationen bleiben unverändert, da sie die Listener triggern.
 
 export async function saveTaskDefinition(taskDefinition) {
     if (!state.user) return null;
