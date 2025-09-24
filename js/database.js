@@ -1,11 +1,10 @@
 // js/database.js
-// KORRIGIERT: getDoc wurde hinzugefügt, da es im originalen Code verwendet wurde, auch wenn es hier aktuell nicht strikt nötig ist.
 import { collection, query, where, doc, setDoc, deleteDoc, writeBatch, onSnapshot, getDoc } from 'https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js';
 import { db } from './firebase-init.js';
 import { state } from './state.js';
 import { WEEKDAYS, getDefaultSettings } from './config.js';
 
-// Store für aktive Listener (Unsubscribe-Funktionen)
+// Store für aktive Listener
 const activeListeners = {
     tasks: null,
     settings: null
@@ -13,14 +12,10 @@ const activeListeners = {
 
 // --- Initialization & Lifecycle ---
 
-/**
- * Initializes real-time listeners for Tasks and Settings.
- * @param {function(string, object): void} onUpdateCallback - Callback function (type, data) when updates occur.
- */
 export function initializeDataListeners(onUpdateCallback) {
     if (!state.user) return;
 
-    // Detach previous listeners if they exist (safety measure)
+    // Detach previous listeners if they exist
     detachListeners();
 
     console.log("Attaching Firestore listeners...");
@@ -31,7 +26,6 @@ export function initializeDataListeners(onUpdateCallback) {
     // Query: Höre auf alle Tasks, bei denen der aktuelle Benutzer im 'assignedTo' Array ist.
     const q = query(tasksCol, where("assignedTo", "array-contains", userId));
 
-    // onSnapshot abonniert Änderungen
     activeListeners.tasks = onSnapshot(q, (snapshot) => {
         const tasks = [];
         snapshot.forEach(doc => {
@@ -40,14 +34,11 @@ export function initializeDataListeners(onUpdateCallback) {
             tasks.push(data);
         });
         console.log("Tasks update received from Firestore.");
-        // Informiere die App über das Update
         onUpdateCallback('tasks', tasks);
     }, (error) => {
         console.error("Error in tasks listener:", error);
         if (error.code === 'permission-denied') {
-             alert("Zugriff verweigert (Tasks). Bitte überprüfen Sie die Firestore-Sicherheitsregeln (Stellen Sie sicher, dass 'assignedTo' korrekt geprüft wird).");
-        } else {
-            alert("Fehler bei der Echtzeit-Synchronisierung der Aufgaben. Bitte prüfe die Netzwerkverbindung.");
+             alert("Zugriff verweigert (Tasks). Bitte überprüfen Sie die Firestore-Sicherheitsregeln.");
         }
     });
 
@@ -56,47 +47,35 @@ export function initializeDataListeners(onUpdateCallback) {
     activeListeners.settings = onSnapshot(settingsRef, async (docSnap) => {
         if (docSnap.exists()) {
             const loadedSettings = docSnap.data();
-            // Validierung stellt sicher, dass die Struktur korrekt ist, auch wenn Daten alt sind
+            // Validierung stellt sicher, dass die Struktur korrekt ist
             const validatedSettings = validateSettings({ ...getDefaultSettings(), ...loadedSettings });
-            console.log("Settings update received from Firestore.");
             onUpdateCallback('settings', validatedSettings);
         } else {
             // Handle case where settings don't exist (e.g. new user)
             console.log("Settings not found, creating defaults.");
             const defaultSettings = getDefaultSettings();
             try {
-                // Erstelle Standardeinstellungen in der DB, falls sie fehlen
                 await setDoc(settingsRef, defaultSettings); 
             } catch (error) {
                 console.error("Error creating default settings:", error);
             }
-            // Informiere die App sofort über die Standardeinstellungen
             onUpdateCallback('settings', defaultSettings);
         }
     }, (error) => {
         console.error("Error in settings listener:", error);
-         if (error.code === 'permission-denied') {
-             alert("Zugriff verweigert (Settings). Bitte überprüfen Sie die Firestore-Sicherheitsregeln.");
-        }
     });
 }
 
-/**
- * Detaches all active listeners (e.g., on logout).
- */
 export function detachListeners() {
     if (activeListeners.tasks) {
-        console.log("Detaching Tasks listener.");
         activeListeners.tasks(); // Ruft die Unsubscribe-Funktion auf
         activeListeners.tasks = null;
     }
     if (activeListeners.settings) {
-        console.log("Detaching Settings listener.");
         activeListeners.settings();
         activeListeners.settings = null;
     }
 }
-
 
 // --- TASKS (CRUD for Definitions) ---
 
@@ -104,16 +83,14 @@ export async function saveTaskDefinition(taskDefinition) {
     if (!state.user) return null;
 
     const userId = state.user.uid;
-    // WICHTIG: Erstelle eine Kopie der Daten. Das verhindert, dass das Originalobjekt (im State) verändert wird.
+    // WICHTIG: Erstelle eine Kopie der Daten.
     const dataToSave = { ...taskDefinition };
 
     // 1. Metadaten sicherstellen
     if (!dataToSave.ownerId) {
         dataToSave.ownerId = userId;
     }
-    // Wichtig: Wenn assignedTo leer ist (sollte nicht passieren, aber sicher ist sicher), füge den Besitzer hinzu.
     if (!dataToSave.assignedTo || dataToSave.assignedTo.length === 0) {
-        // Verwende ownerId, falls der aktuelle User nicht der Owner ist (z.B. beim Speichern durch Teammitglied)
         dataToSave.assignedTo = [dataToSave.ownerId];
     }
 
@@ -123,9 +100,7 @@ export async function saveTaskDefinition(taskDefinition) {
         if (dataToSave.id && !dataToSave.id.startsWith('temp-')) {
             // Existierende Aufgabe aktualisieren
             docRef = doc(db, "tasks", dataToSave.id);
-            // ID nicht im Dokument speichern (sie ist der Dokumentschlüssel)
             delete dataToSave.id;
-            // merge: true sorgt dafür, dass bestehende Felder nicht gelöscht werden, wenn sie in dataToSave fehlen
             await setDoc(docRef, dataToSave, { merge: true });
             return docRef.id;
         } else {
@@ -146,7 +121,6 @@ export async function deleteTaskDefinition(taskId) {
 
     try {
         const docRef = doc(db, "tasks", taskId);
-        // Hinweis: Die Sicherheitsregeln müssen prüfen, ob der Benutzer diese Aufgabe löschen darf (assignedTo Check).
         await deleteDoc(docRef);
     } catch (error) {
         console.error("Fehler beim Löschen der Aufgabe:", error);
@@ -170,10 +144,8 @@ export async function clearAllCompletedTasks(completedTaskIds) {
     }
 }
 
-
 // --- SETTINGS Validation ---
 
-// (Validierungslogik unverändert)
 function isValidSlot(slot) {
     if (!slot || typeof slot.start !== 'string' || typeof slot.end !== 'string') return false;
     return slot.start < slot.end;
@@ -206,7 +178,6 @@ function validateSettings(settings) {
     return settings;
 }
 
-// saveSettings wird weiterhin benötigt, wenn der Benutzer aktiv speichert
 export async function saveSettings(settings) {
     if (!state.user) return;
 
