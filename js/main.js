@@ -120,6 +120,7 @@ function attachEventListeners() {
     // Klick außerhalb des Modals (Overlay-Klick)
     // Wir prüfen, ob das geklickte Element das Overlay selbst ist (nicht der Container darin)
     document.getElementById('settingsModal').addEventListener('click', (event) => {
+        // event.target ist das Overlay (modal-overlay), event.currentTarget ist der Listener-Container (auch das Overlay)
         if (event.target === event.currentTarget) {
             closeModal();
         }
