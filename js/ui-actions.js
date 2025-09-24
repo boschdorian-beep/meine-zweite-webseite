@@ -3,7 +3,7 @@ import { state } from './state.js';
 import { WEEKDAYS } from './config.js';
 import { toggleTaskCompleted, handleTaskDrop, updateTaskDetails, getOriginalTotalDuration, recalculateSchedule } from './scheduler.js';
 // NEU: Importiere clearAllCompletedTasks und deleteTaskDefinition direkt aus database.js
-import { clearAllCompletedTasks, deleteTaskDefinition, saveSettings } from './database.js';
+import { clearAllCompletedTasks, deleteTaskDefinition, saveSettings, saveTaskDefinition } from './database.js';
 import { renderApp, renderSettingsModal } from './ui-render.js';
 // NEU: Importiere Hilfsfunktionen für Zeit und Parsing
 import { parseDateString, calculateDecimalHours } from './utils.js';
@@ -586,9 +586,16 @@ export async function handleClearCompleted() {
 
 // (Settings Modal Actions bleiben unverändert)
 export function openModal() {
-    // Kopiere aktuelle Einstellungen in den temporären Zustand
+    // KORREKTUR: Wir sammeln ALLE Orte (aus Einstellungen und "verwaiste" aus Tasks)
+    const allTaskLocations = [...new Set(state.tasks.map(t => t.location).filter(Boolean))];
+    const allSettingLocations = state.settings.locations || [];
+    const combinedLocations = [...new Set([...allSettingLocations, ...allTaskLocations])].sort();
+
+    // Kopiere aktuelle Einstellungen in den temporären Zustand und füge die kombinierte Ortsliste hinzu
     modalState.tempSettings = JSON.parse(JSON.stringify(state.settings));
-    renderSettingsModal(modalState.tempSettings);
+    modalState.tempSettings.locations = combinedLocations;
+
+    renderSettingsModal(modalState.tempSettings); // Rendere mit der vollständigen Liste
     // NEU: Dropdowns mit den aktuellen Orten befüllen
     // (wird indirekt durch renderApp() gemacht, aber hier explizit für Klarheit)
     // populateLocationDropdowns();
@@ -648,34 +655,80 @@ function attachModalEventListeners() {
     container.addEventListener('click', handleTimeslotAction);
 
     // NEU: Listener für die Ortsverwaltung
-    settingsModal.removeEventListener('click', handleLocationAction);
-    settingsModal.addEventListener('click', handleLocationAction);
+    settingsModal.removeEventListener('click', handleLocationClick);
+    settingsModal.addEventListener('click', handleLocationClick);
+    settingsModal.removeEventListener('change', handleLocationInputChange); // 'change' feuert bei Blur oder Enter
+    settingsModal.addEventListener('change', handleLocationInputChange);
 }
 
 /**
- * NEU: Verarbeitet Aktionen in der Ortsverwaltung (Hinzufügen/Löschen).
+ * KORRIGIERT: Verarbeitet Klicks in der Ortsverwaltung (Hinzufügen/Löschen).
+ * Arbeitet jetzt direkt mit dem globalen State und speichert automatisch.
  */
-function handleLocationAction(event) {
+async function handleLocationClick(event) {
     const addBtn = event.target.closest('#add-location-btn');
     const removeBtn = event.target.closest('.remove-location-btn');
 
     if (addBtn) {
+        event.preventDefault(); // Verhindert Form-Submission, falls vorhanden
         const input = document.getElementById('new-location-input');
         const newLocation = input.value.trim();
-        if (newLocation && !modalState.tempSettings.locations.includes(newLocation)) {
-            modalState.tempSettings.locations.push(newLocation);
-            modalState.tempSettings.locations.sort(); // Alphabetisch sortieren
+        if (newLocation && !state.settings.locations.includes(newLocation)) {
+            state.settings.locations.push(newLocation);
+            state.settings.locations.sort();
             input.value = '';
-            renderSettingsModal(modalState.tempSettings); // UI neu rendern
+            
+            // Automatisch speichern und UI aktualisieren
+            await saveSettings(state.settings);
+            await renderApp();
+            openModal(); // Modal neu öffnen, um den Zustand zu erhalten
         }
     }
 
     if (removeBtn) {
+        event.preventDefault();
         const locationToRemove = removeBtn.dataset.location;
-        modalState.tempSettings.locations = modalState.tempSettings.locations.filter(
-            loc => loc !== locationToRemove
-        );
-        renderSettingsModal(modalState.tempSettings); // UI neu rendern
+        if (confirm(`Möchtest du den Ort "${locationToRemove}" wirklich löschen? Er wird von allen Aufgaben entfernt.`)) {
+            // 1. Ort aus den Einstellungen entfernen
+            state.settings.locations = state.settings.locations.filter(loc => loc !== locationToRemove);
+
+            // 2. Ort aus allen Tasks entfernen und diese für den DB-Update sammeln
+            const tasksToUpdate = [];
+            state.tasks.forEach(task => {
+                if (task.location === locationToRemove) {
+                    task.location = null;
+                    tasksToUpdate.push(saveTaskDefinition(task));
+                }
+            });
+
+            // 3. Alle Änderungen speichern
+            await Promise.all([saveSettings(state.settings), ...tasksToUpdate]);
+            await renderApp();
+            openModal();
+        }
+    }
+}
+
+/**
+ * NEU: Verarbeitet das Umbenennen eines Ortes.
+ */
+async function handleLocationInputChange(event) {
+    const input = event.target;
+    if (!input.matches('.location-name-input')) return;
+
+    const originalLocation = input.dataset.originalLocation;
+    const newLocation = input.value.trim();
+
+    if (newLocation && newLocation !== originalLocation) {
+        if (confirm(`Möchtest du den Ort "${originalLocation}" in "${newLocation}" umbenennen? Dies wird für alle Aufgaben übernommen.`)) {
+            // Logik zum Umbenennen und Speichern
+            await renameLocationInStateAndDb(originalLocation, newLocation);
+            await renderApp();
+            openModal();
+        } else {
+            // Zurücksetzen, wenn der Benutzer abbricht
+            input.value = originalLocation;
+        }
     }
 }
  
@@ -715,6 +768,33 @@ function handleTimeslotAction(event) {
 
     // Rendere das Modal neu mit den aktualisierten temporären Einstellungen
     renderSettingsModal(modalState.tempSettings);
+}
+
+/**
+ * NEU: Hilfsfunktion, die die gesamte Logik zum Umbenennen eines Ortes kapselt.
+ */
+async function renameLocationInStateAndDb(oldName, newName) {
+    // 1. Update der zentralen Ortsliste in den Einstellungen
+    const locationIndex = state.settings.locations.indexOf(oldName);
+    if (locationIndex > -1) {
+        state.settings.locations[locationIndex] = newName;
+    } else {
+        // Wenn der alte Ort ein "verwaister" Ort war, füge den neuen hinzu
+        state.settings.locations.push(newName);
+    }
+    state.settings.locations = [...new Set(state.settings.locations)].sort();
+
+    // 2. Alle Tasks durchgehen und den Ort aktualisieren
+    const tasksToUpdate = [];
+    state.tasks.forEach(task => {
+        if (task.location === oldName) {
+            task.location = newName;
+            tasksToUpdate.push(saveTaskDefinition(task)); // Sammle die Speicher-Promises
+        }
+    });
+
+    // 3. Alle Änderungen parallel in die DB schreiben
+    await Promise.all([saveSettings(state.settings), ...tasksToUpdate]);
 }
 
 export function setActiveTaskType(button) {

@@ -81,8 +81,8 @@ function populateLocationDropdowns(selectedLocation = null) {
 async function renderFilterBar() {
     const activeTasks = state.tasks.filter(t => !t.completed);
 
-    // 1. Orte sammeln
-    const allLocations = [...new Set(activeTasks.map(t => t.location).filter(Boolean))].sort();
+    // KORREKTUR: 1. Orte aus den zentralen Einstellungen laden
+    const allLocations = state.settings.locations || [];
 
     // 2. Teammitglieder sammeln
     const allUsers = await getAllUserProfilesInTasks();
@@ -486,8 +486,9 @@ function renderLocationsManagement(locations) {
     locations.forEach(location => {
         const item = document.createElement('div');
         item.className = 'location-management-item';
+        // GEÄNDERT: Statt eines <span> verwenden wir ein <input>, um Umbenennungen zu ermöglichen.
         item.innerHTML = `
-            <span>${location}</span>
+            <input type="text" value="${location}" data-original-location="${location}" class="location-name-input flex-grow bg-transparent focus:bg-white focus:ring-1 focus:ring-blue-500 rounded px-1">
             <button data-location="${location}" class="remove-location-btn" title="Ort löschen">&times;</button>
         `;
         container.appendChild(item);
