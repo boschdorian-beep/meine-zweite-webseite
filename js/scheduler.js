@@ -382,7 +382,22 @@ export function recalculateSchedule() {
 // --- Aktionen ---
 
 export async function toggleTaskCompleted(taskId, isCompleted) {
-    // ... (unverändert)
+    const task = state.tasks.find(t => t.id === taskId);
+    if (task) {
+        task.completed = isCompleted;
+        // Setze oder entferne das Fertigstellungsdatum
+        task.completedAt = isCompleted ? new Date().toISOString() : null;
+        
+        // Setze manuelle Planung zurück, da die Aufgabe (vorerst) aus dem Plan entfernt wird
+        task.isManuallyScheduled = false;
+        delete task.manualDate;
+
+        // Speichere die Änderung in der Datenbank
+        await saveTaskDefinition(task);
+
+        // Berechne den Zeitplan neu, damit die Aufgabe aus der Planung verschwindet/wieder auftaucht
+        recalculateSchedule();
+    }
 }
 
 /**
