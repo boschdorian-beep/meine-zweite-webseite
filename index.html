@@ -46,25 +46,43 @@
             @apply bg-surface rounded-xl shadow-lg;
         }
 
-        /* --- Task Item Styles (Stark überarbeitet) --- */
+        /* --- Task Item Styles (Komplett neu strukturiert für Alignment) --- */
         .task-item {
-            /* NEU: Nutzt flex-col für das neue Layout (Titelzeile, Metadatenzeile, Notizbereich) */
-            @apply flex flex-col items-start justify-between bg-white p-4 rounded-lg shadow-sm mb-3 relative overflow-hidden pl-6 border border-gray-100 transition-all duration-150;
+            /* NEU: Nutzt flex-row, items-start für vertikales Alignment. 
+               Nutzt border-b für saubere Trennung statt Schatten. */
+            @apply flex items-start bg-white py-4 px-4 border-b border-gray-200 transition-all duration-150 relative;
+            /* WICHTIG: Reserviert Platz für den Prioritäts-/Überfällig-Balken, um Springen zu vermeiden */
+            border-left: 4px solid transparent;
+        }
+
+        /* Letztes Element in einer Liste soll keinen Border-Bottom haben */
+        .drop-zone .task-item:last-child,
+        #completedTasksList .task-item:last-child {
+            border-bottom: none;
         }
 
          /* Priorisierte Aufgaben (durch Filter) */
         .task-item.prioritized {
-            /* GEÄNDERT: Stärkere Hervorhebung durch Ring UND leichten Hintergrund (Leicht verstärkt mit border-accent) */
-            @apply ring-2 ring-offset-2 ring-accent bg-violet-50 border-accent;
+            /* NEU: Klare visuelle Hervorhebung durch starken linken Balken und leichten Hintergrund. */
+            @apply bg-violet-50;
+            border-left-color: theme('colors.accent.DEFAULT');
         }
 
-        .task-location-marker {
-            @apply absolute top-0 left-0 bottom-0 w-3;
+        /* NEU: Container für die Checkbox (Feste Breite für Alignment) */
+        .task-checkbox-container {
+             /* pt-0.5 richtet die Checkbox optisch mit der ersten Textzeile aus */
+             @apply w-10 flex-shrink-0 pt-0.5;
         }
 
-        /* NEU: Container für Titelzeile (Checkbox, Titel, Toggle-Buttons) */
-        .task-title-container {
-            /* items-start ist wichtig für die korrekte Ausrichtung der Checkbox zum Titel */
+        /* NEU: Haupt-Inhaltscontainer (Titel, Meta, Notizen) */
+        .task-content-container {
+            /* min-w-0 ist entscheidend, damit Ellipsis (Kürzung) im Flex-Child funktioniert */
+            @apply flex-grow min-w-0;
+        }
+
+        /* NEU: Wrapper für Titelzeile (Titeltext + Toggle-Buttons) */
+        .task-title-wrapper {
+            /* items-start ist wichtig für die korrekte Ausrichtung der Toggles zum Titel */
             @apply flex items-start w-full;
         }
 
@@ -88,8 +106,8 @@
 
         /* NEU: Container für Metadaten (Zweite Zeile) */
         .task-metadata {
-            /* Abstand zur Checkbox (ml-8) und zum Titel (mt-1) */
-            @apply flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-gray-500 ml-8 mt-1;
+            /* Jetzt bündig mit dem Titel. */
+            @apply flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-gray-500 mt-1;
         }
         .task-metadata > div {
              @apply flex items-center;
@@ -97,7 +115,8 @@
 
         /* Spezifischere Styles für Metadaten-Elemente */
         .meta-icon {
-            @apply mr-2 text-gray-400;
+            /* Abstand leicht reduziert (mr-1.5) für bessere Gruppierung */
+            @apply mr-1.5 text-gray-400;
         }
         .meta-benefit {
             @apply text-green-700 font-medium;
@@ -118,28 +137,40 @@
         }
 
         .task-item.overdue {
-            @apply border-2 border-red-400 bg-red-50;
+            /* Bei Überfälligen Aufgaben nutzen wir einen roten Akzent. */
+            @apply bg-red-50;
+            border-left-color: theme('colors.red.400');
         }
+        /* Stellt sicher, dass der Überfällig-Status Priorität hat (visuell wichtiger) */
+        .task-item.prioritized.overdue {
+             border-left-color: theme('colors.red.400');
+             background-color: theme('colors.red.50');
+        }
+
         
         /* --- Drag&Drop Styles (angepasst) --- */
         .task-item.dragging {
             @apply opacity-50 border-2 border-dashed border-primary-dark;
             cursor: grabbing;
         }
-        .task-item.drag-over-top {
+        /* Visuelle Indikatoren beim Drüberziehen (angepasst für border-b Layout) */
+         .task-item.drag-over-top {
             @apply border-t-4 border-primary;
         }
         .task-item.drag-over-bottom {
-            @apply border-b-4 border-primary;
-        }
-        .drop-zone {
-             @apply min-h-[50px] transition-colors duration-200 p-1;
-        }
-        .drop-zone.drag-over-zone {
-            @apply bg-primary-light bg-opacity-20 rounded-lg;
+            /* Wichtig: Überschreibt das border-b des Standard-Items */
+            border-bottom: 4px solid theme('colors.primary.DEFAULT') !important;
         }
 
-        /* --- Settings Modal Styles --- */
+        .drop-zone {
+             /* NEU: Die Liste selbst ist jetzt der visuelle Block (weiß, gerundet, shadow-md) */
+             @apply min-h-[50px] transition-colors duration-200 bg-white rounded-lg shadow-md border border-gray-200 overflow-hidden;
+        }
+        .drop-zone.drag-over-zone {
+            @apply bg-primary-light bg-opacity-10;
+        }
+
+        /* --- Settings Modal Styles (Unverändert) --- */
         .remove-timeslot-btn {
             @apply text-red-500 hover:text-red-700 w-6 h-6 flex items-center justify-center rounded-full;
         }
@@ -167,12 +198,11 @@
 
         /* --- Notizen Styles (angepasst an neues Layout) --- */
         .task-notes-content {
-            /* Abstand zur Checkbox (ml-8) beibehalten */
-            @apply text-sm text-gray-600 mt-2 p-3 bg-gray-50 rounded-lg whitespace-pre-wrap w-full ml-8;
+            /* Jetzt bündig mit dem Titel. bg-gray-100 für bessere Abgrenzung. */
+            @apply text-sm text-gray-600 mt-2 p-3 bg-gray-100 rounded-lg whitespace-pre-wrap w-full;
         }
 
         /* --- User Assignment Styles --- */
-        /* Entfernt ml-4, da es jetzt im task-metadata Container ist */
         .assigned-users-display {
             @apply flex items-center space-x-1;
         }
@@ -181,55 +211,44 @@
             @apply inline-flex items-center justify-center h-6 px-2 rounded-full bg-primary-light bg-opacity-30 text-xs font-semibold text-primary-dark border border-primary;
         }
 
-        /* --- UI FIX FÜR MODALS (Scrollbar und Layout Fix) --- */
+        /* --- UI FIX FÜR MODALS (Scrollbar und Layout Fix) (Unverändert) --- */
         .modal-overlay {
-            /* Stellt sicher, dass das Overlay den ganzen Bildschirm bedeckt und Abstand zum Rand lässt (p-4) */
-             /* NEU: z-50 hinzugefügt */
              @apply fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50;
         }
 
         .modal-container {
-            /* WICHTIG: max-height: 100% bedeutet 100% des Eltern-Elements (modal-overlay). 
-               Da das Overlay p-4 hat, entstehen die gewünschten Ränder.
-               Flex-col ist entscheidend für das interne Scrollen. */
             max-height: 100%; 
             @apply flex flex-col bg-surface rounded-xl shadow-2xl w-full relative;
         }
         .modal-scrollable-content {
-            /* Macht den Inhalt scrollbar, wenn er zu groß wird */
             overflow-y: auto;
              @apply p-8;
         }
         .modal-header {
-            /* Fixierter Header (flex-shrink-0 verhindert, dass er zusammengedrückt wird) */
             @apply p-8 pb-4 border-b flex-shrink-0;
         }
         .modal-footer {
-            /* Fixierter Footer */
              @apply p-8 pt-4 border-t flex-shrink-0;
         }
 
-         /* --- Styles für Filter-Checkboxen (Toggles) --- */
-         /* NEU: Auch für Radio-Buttons (falls benötigt, für Konsistenz) */
+         /* --- Styles für Filter-Checkboxen (Toggles) (Unverändert) --- */
         .filter-checkbox-label input[type="checkbox"],
         .filter-checkbox-label input[type="radio"] {
-            @apply sr-only; /* Versteckt die Standard-Checkbox/Radio */
+            @apply sr-only;
         }
         .filter-toggle {
              @apply inline-block px-4 py-2 text-sm font-medium rounded-full border transition duration-150 cursor-pointer select-none;
         }
-        /* Standard Zustand (Inaktiv) */
         .filter-checkbox-label input[type="checkbox"] + .filter-toggle,
         .filter-checkbox-label input[type="radio"] + .filter-toggle {
              @apply bg-white text-gray-700 border-gray-300 hover:bg-gray-100;
         }
-        /* Aktiver Zustand (Checked) - Nutzt Akzentfarbe */
         .filter-checkbox-label input[type="checkbox"]:checked + .filter-toggle,
         .filter-checkbox-label input[type="radio"]:checked + .filter-toggle {
             @apply bg-accent text-white border-accent shadow-md;
         }
 
-        /* --- Button Styles (angepasst an neues Design) --- */
+        /* --- Button Styles (Unverändert) --- */
         .btn-primary {
             @apply bg-primary hover:bg-primary-dark text-white font-bold py-3 rounded-lg shadow-md transition duration-300;
         }
@@ -246,7 +265,7 @@
              @apply bg-red-500 hover:bg-red-600 text-white font-semibold py-2 px-4 rounded-lg shadow-md transition duration-300 ease-in-out;
         }
 
-        /* --- NEU: Toast Notification (Visuelles Feedback) --- */
+        /* --- Toast Notification (Visuelles Feedback) --- */
         #toast-container {
             @apply fixed top-5 right-5 z-50 space-y-4;
         }
@@ -260,390 +279,59 @@
 
     <div id="toast-container"></div>
 
-    <div id="loading-spinner" class="text-center">
-        <div class="animate-spin rounded-full h-16 w-16 border-b-4 border-primary mx-auto mb-4"></div>
-        <p class="text-gray-600">Verbinde und prüfe Login...</p>
-    </div>
-
-    <div id="auth-container" class="hidden container p-8 max-w-md w-full">
-        <h1 class="text-3xl font-bold text-gray-800 mb-6 text-center">Willkommen beim Zeitplan</h1>
-        
-        <div id="login-view">
-            <h2 class="text-xl font-semibold mb-4">Login</h2>
-            <input type="email" id="login-email" placeholder="E-Mail Adresse" class="w-full p-3 mb-4 border border-gray-300 rounded-lg focus:ring-primary focus:border-primary">
-            <input type="password" id="login-password" placeholder="Passwort" class="w-full p-3 mb-4 border border-gray-300 rounded-lg focus:ring-primary focus:border-primary">
-            <button id="login-btn" class="w-full btn-primary mb-4">Anmelden</button>
-            <p class="text-center text-gray-600">Noch kein Konto? <a href="#" id="show-register" class="text-blue-600 hover:underline">Registrieren</a></p>
-        </div>
-
-        <div id="register-view" class="hidden">
-            <h2 class="text-xl font-semibold mb-4">Registrieren</h2>
-            <input type="text" id="register-displayname" placeholder="Dein Name (z.B. Max Mustermann)" class="w-full p-3 mb-4 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
-            <input type="text" id="register-shortname" placeholder="Kürzel (z.B. MM, max 5 Zeichen)" maxlength="5" class="w-full p-3 mb-4 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
-            
-            <input type="email" id="register-email" placeholder="E-Mail Adresse" class="w-full p-3 mb-4 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
-            <input type="password" id="register-password" placeholder="Passwort (min. 6 Zeichen)" class="w-full p-3 mb-4 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
-            <button id="register-btn" class="w-full btn-secondary mb-4">Konto erstellen</button>
-            <p class="text-center text-gray-600">Bereits registriert? <a href="#" id="show-login" class="text-primary hover:underline">Anmelden</a></p>
-        </div>
-
-        <div id="verification-view" class="hidden">
-            <h2 class="text-xl font-semibold mb-4 text-center">E-Mail Adresse bestätigen</h2>
-            <div class="bg-blue-100 border-l-4 border-blue-500 text-blue-700 p-4 mb-6" role="alert">
-                <p class="font-bold">Fast geschafft!</p>
-                <p>Wir haben eine Bestätigungs-E-Mail an <strong id="verification-email-display">dein Postfach</strong> gesendet.</p>
-                <p>Bitte klicke auf den Link in der E-Mail, um deinen Zugang freizuschalten (prüfe auch den Spam-Ordner).</p>
-            </div>
-            
-            <button id="check-verification-btn" class="w-full btn-primary mb-4">Ich habe bestätigt (Status prüfen)</button>
-            
-            <div class="flex justify-between text-sm">
-                <button id="resend-verification-btn" class="text-blue-600 hover:underline">E-Mail erneut senden</button>
-                <button id="logout-verification-btn" class="text-gray-600 hover:underline">Abmelden</button>
-            </div>
-        </div>
-
-        <p id="auth-error" class="text-red-500 mt-4 text-center"></p>
-    </div>
-
     <div id="app-container" class="hidden container p-5 md:p-8 max-w-5xl w-full">
         
-        <div class="flex justify-between items-center mb-8">
-            <h1 class="text-3xl font-bold text-gray-800">Meine To-Do-Liste</h1>
-            <div class="flex items-center space-x-4">
-                <label class="flex items-center text-gray-700 cursor-pointer">
-                    <input type="checkbox" id="toggleDragDrop" class="form-checkbox h-5 w-5 text-primary rounded mr-2">
-                    Manuell Sortieren
-                </label>
-                <button id="settingsBtn" class="btn-icon" title="Einstellungen" aria-label="Einstellungen öffnen">
-                    <i class="fas fa-cog"></i>
-                </button>
-                <button id="logout-btn" class="btn-danger" title="Logout" aria-label="Ausloggen">
-                    <i class="fas fa-sign-out-alt"></i>
-                </button>
-            </div>
-        </div>
-
-        <div class="mb-6 p-6 bg-white shadow-md rounded-xl border border-gray-200">
-            
-            <div class="flex flex-col lg:flex-row gap-4 mb-4">
-                <div class="flex flex-col gap-4 flex-grow">
-                    <label for="newTaskInput" class="sr-only">Neue Aufgabe</label>
-                    <input type="text" id="newTaskInput" placeholder="Was muss getan werden?" class="w-full text-lg p-4 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary transition duration-200">
-                    
-                    <div class="flex gap-4">
-                        <label for="newNotesInput" class="sr-only">Notizen</label>
-                        <input type="text" id="newNotesInput" placeholder="Details oder Notizen (optional)..." class="flex-grow p-3 border border-gray-300 rounded-lg">
-                        
-                        <label for="newLocationSelect" class="sr-only">Ort</label>
-                        <select id="newLocationSelect" class="p-3 border border-gray-300 rounded-lg bg-white w-1/4">
-                            </select>
-                    </div>
-                </div>
-
-                <div class="lg:w-1/4 p-4 bg-gray-100 rounded-lg shadow-inner">
-                    <h3 class="text-gray-700 text-sm font-bold mb-3">Zuweisen an:</h3>
-                    <div id="assigned-users-list-create" class="mb-4 space-y-2 max-h-24 overflow-y-auto pr-2">
-                        </div>
-                    
-                    <div class="relative">
-                        <input type="text" id="user-search-input-create" placeholder="E-Mail suchen..." class="w-full p-2 border border-gray-300 rounded-lg text-sm focus:ring-blue-500 focus:border-blue-500">
-                        <div id="user-search-results-create" class="absolute z-10 w-full bg-white border border-gray-300 rounded-lg mt-1 shadow-lg max-h-40 overflow-y-auto hidden">
-                            </div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="flex flex-col md:flex-row justify-between items-start space-y-4 md:space-y-0 md:space-x-4">
-                <div class="flex bg-gray-200 rounded-lg overflow-hidden w-full md:w-auto" id="taskTypeButtonsContainer">
-                    <button data-type="Vorteil & Dauer" class="task-type-btn py-3 px-4 text-center font-semibold rounded-l-lg transition duration-200 flex-1">
-                        Vorteil & Dauer
-                    </button>
-                    <button data-type="Deadline" class="task-type-btn py-3 px-4 text-center font-semibold transition duration-200 flex-1">
-                        Deadline
-                    </button>
-                    <button data-type="Fixer Termin" class="task-type-btn py-3 px-4 text-center font-semibold rounded-r-lg transition duration-200 flex-1">
-                        Fixer Termin
-                    </button>
-                </div>
-                
-                <button id="addTaskBtn" class="btn-primary py-4 px-12 w-full md:w-auto text-lg font-bold shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 transition duration-200">
-                    <i class="fas fa-plus mr-2"></i> Hinzufügen
-                </button>
-            </div>
-
-            <div id="vorteilDauerInputs" class="task-inputs mt-6 hidden p-4 bg-gray-50 rounded-lg border">
-                <div class="mb-4 flex flex-col md:flex-row md:items-center space-y-2 md:space-y-0 md:space-x-4">
-                    <label class="block text-gray-700 text-sm font-bold md:w-1/3">Geschätzte Dauer:</label>
-                    <div class="flex space-x-2 md:w-2/3 w-full">
-                        <input type="number" id="estimated-duration-h" value="1" min="0" placeholder="Stunden" class="w-1/2 p-3 border border-gray-300 rounded-lg">
-                        <input type="number" id="estimated-duration-m" value="0" min="0" max="59" placeholder="Minuten" class="w-1/2 p-3 border border-gray-300 rounded-lg">
-                    </div>
-                </div>
-                <div class="flex flex-col md:flex-row md:items-center space-y-2 md:space-y-0 md:space-x-4">
-                    <label for="monthly-financial-benefit" class="block text-gray-700 text-sm font-bold md:w-1/3">Monatl. Finanzvorteil (€):</label>
-                    <input type="text" id="monthly-financial-benefit" placeholder="Zahl (optional)" class="md:w-2/3 p-3 border border-gray-300 rounded-lg w-full">
-                </div>
-            </div>
-
-            <div id="deadlineInputs" class="task-inputs mt-6 hidden p-4 bg-gray-50 rounded-lg border">
-                <div class="mb-4 flex flex-col md:flex-row md:items-center space-y-2 md:space-y-0 md:space-x-4">
-                    <label class="block text-gray-700 text-sm font-bold md:w-1/3">Deadline (Datum & Zeit):</label>
-                    <div class="flex space-x-2 md:w-2/3 w-full">
-                        <input type="date" id="deadline-date" class="w-1/2 p-3 border border-gray-300 rounded-lg">
-                        <input type="time" id="deadline-time" class="w-1/2 p-3 border border-gray-300 rounded-lg" placeholder="Uhrzeit (optional)">
-                    </div>
-                </div>
-                <div class="flex flex-col md:flex-row md:items-center space-y-2 md:space-y-0 md:space-x-4">
-                    <label class="block text-gray-700 text-sm font-bold md:w-1/3">Dauer:</label>
-                    <div class="flex space-x-2 md:w-2/3 w-full">
-                        <input type="number" id="deadline-duration-h" value="1" min="0" placeholder="Stunden" class="w-1/2 p-3 border border-gray-300 rounded-lg">
-                        <input type="number" id="deadline-duration-m" value="0" min="0" max="59" placeholder="Minuten" class="w-1/2 p-3 border border-gray-300 rounded-lg">
-                    </div>
-                </div>
-            </div>
-
-            <div id="fixerTerminInputs" class="task-inputs mt-6 hidden p-4 bg-gray-50 rounded-lg border">
-                <div class="mb-4 flex flex-col md:flex-row md:items-center space-y-2 md:space-y-0 md:space-x-4">
-                    <label class="block text-gray-700 text-sm font-bold md:w-1/3">Datum und Uhrzeit:</label>
-                    <div class="flex space-x-2 md:w-2/3 w-full">
-                        <input type="date" id="fixed-date" class="w-1/2 p-3 border border-gray-300 rounded-lg">
-                        <input type="time" id="fixed-time" class="w-1/2 p-3 border border-gray-300 rounded-lg" placeholder="Uhrzeit (optional)">
-                    </div>
-                </div>
-                <div class="flex flex-col md:flex-row md:items-center space-y-2 md:space-y-0 md:space-x-4">
-                    <label class="block text-gray-700 text-sm font-bold md:w-1/3">Dauer:</label>
-                    <div class="flex space-x-2 md:w-2/3 w-full">
-                        <input type="number" id="fixed-duration-h" value="1" min="0" placeholder="Stunden" class="w-1/2 p-3 border border-gray-300 rounded-lg">
-                        <input type="number" id="fixed-duration-m" value="0" min="0" max="59" placeholder="Minuten" class="w-1/2 p-3 border border-gray-300 rounded-lg">
-                    </div>
-                </div>
-            </div>
-        </div>
         <div id="filter-bar" class="mb-6 p-4 bg-white border border-gray-200 rounded-lg shadow-sm flex flex-col lg:flex-row justify-between items-start lg:space-x-6 space-y-4 lg:space-y-0 hidden">
-            
-            <div class="flex-1 w-full lg:w-auto">
-                <h3 class="text-sm font-semibold text-gray-700 mb-3">Priorisiere Ort(e):</h3>
-                <div id="location-filters" class="flex flex-wrap gap-2">
-                    </div>
             </div>
-
-            <div class="flex-1 lg:border-l lg:pl-6 border-t lg:border-t-0 pt-4 lg:pt-0 w-full lg:w-auto">
-                 <h3 class="text-sm font-semibold text-gray-700 mb-3">Priorisiere Team (Gemeinsame Aufgaben):</h3>
-                <div id="user-filters" class="flex flex-wrap gap-2">
-                    </div>
-            </div>
-
-            <div>
-                <button id="clear-filters-btn" class="text-red-500 hover:text-red-700 font-medium text-sm mt-1 disabled:opacity-50" disabled>
-                    <i class="fas fa-times mr-1"></i> Filter löschen
-                </button>
-            </div>
-        </div>
 
         <div id="filter-active-message" class="hidden mb-6 p-4 bg-violet-100 border-l-4 border-accent text-violet-800">
             <p class="font-bold">Filter aktiv</p>
-            <p>Gefilterte Aufgaben werden priorisiert eingeplant und markiert (<span class="ring-2 ring-offset-1 ring-accent px-1 bg-violet-50 border-accent">Beispiel</span>). Andere Aufgaben werden danach eingeplant.</p>
+            <p>Gefilterte Aufgaben werden priorisiert eingeplant und <span class="bg-violet-50 border-l-4 border-accent px-1">markiert</span>. Andere Aufgaben werden danach eingeplant.</p>
         </div>
 
 
-        <div data-date-offset="0" class="bg-gray-50 rounded-lg p-6 shadow-sm border border-gray-200 mb-6 border-l-8 border-primary">
-            <h2 class="text-2xl font-semibold text-gray-800 mb-3">
+        <div data-date-offset="0" class="mb-6">
+            <h2 class="text-2xl font-semibold text-gray-800 mb-2 flex items-center">
+                <span class="inline-block w-3 h-6 bg-primary rounded-r-md mr-3"></span>
                 Heute <span id="todayDateDisplay" class="text-lg font-normal text-gray-500 ml-2"></span>
             </h2>
-            <p id="todayAvailableTime" class="text-gray-600 mb-2">Verfügbare Zeit: 0h 0min</p>
-            <div id="todayTasksList" class="mt-4 drop-zone">
-                <p id="noTodayTasks" class="text-gray-600 italic">Keine Aufgaben für diesen Tag geplant.</p>
+            <p id="todayAvailableTime" class="text-gray-600 mb-4 ml-6">Verfügbare Zeit: 0h 0min</p>
+            <div id="todayTasksList" class="drop-zone">
+                <p id="noTodayTasks" class="text-gray-600 italic p-4 text-center">Keine Aufgaben für diesen Tag geplant.</p>
             </div>
         </div>
 
-        <div data-date-offset="1" class="bg-gray-50 rounded-lg p-6 shadow-sm border border-gray-200 mb-6 border-l-8 border-primary-light">
-             <h2 class="text-2xl font-semibold text-gray-800 mb-3">
+        <div data-date-offset="1" class="mb-6">
+             <h2 class="text-2xl font-semibold text-gray-800 mb-2 flex items-center">
+                <span class="inline-block w-3 h-6 bg-primary-light rounded-r-md mr-3"></span>
                 Morgen <span id="tomorrowDateDisplay" class="text-lg font-normal text-gray-500 ml-2"></span>
             </h2>
-            <p id="tomorrowAvailableTime" class="text-gray-600 mb-2">Verfügbare Zeit: 0h 0min</p>
-            <div id="tomorrowTasksList" class="mt-4 drop-zone">
-                <p id="noTomorrowTasks" class="text-gray-600 italic">Keine Aufgaben für diesen Tag geplant.</p>
+            <p id="tomorrowAvailableTime" class="text-gray-600 mb-4 ml-6">Verfügbare Zeit: 0h 0min</p>
+            <div id="tomorrowTasksList" class="drop-zone">
+                <p id="noTomorrowTasks" class="text-gray-600 italic p-4 text-center">Keine Aufgaben für diesen Tag geplant.</p>
             </div>
         </div>
 
-        <div data-date-offset="2" class="bg-gray-50 rounded-lg p-6 shadow-sm border border-gray-200 mb-6 border-l-8 border-gray-400">
-            <h2 class="text-2xl font-semibold text-gray-800 mb-3">Zukünftige Aufgaben</h2>
-            <p id="futureAvailableTime" class="text-gray-600 mb-2">Verfügbare Zeit: 0h 0min</p>
-            <div id="futureTasksList" class="mt-4 drop-zone">
-                <p id="noFutureTasks" class="text-gray-600 italic">Keine Aufgaben für diesen Bereich geplant.</p>
+        <div data-date-offset="2" class="mb-6">
+            <h2 class="text-2xl font-semibold text-gray-800 mb-2 flex items-center">
+                <span class="inline-block w-3 h-6 bg-gray-400 rounded-r-md mr-3"></span>
+                Zukünftige Aufgaben
+            </h2>
+            <p id="futureAvailableTime" class="text-gray-600 mb-4 ml-6">Verfügbare Zeit: 0h 0min</p>
+            <div id="futureTasksList" class="drop-zone">
+                <p id="noFutureTasks" class="text-gray-600 italic p-4 text-center">Keine Aufgaben für diesen Bereich geplant.</p>
             </div>
         </div>
 
-        <div class="bg-gray-100 rounded-lg p-6 shadow-inner border border-gray-200 mt-8">
+        <div class="mt-8">
             <div class="flex justify-between items-center mb-4">
                 <h2 class="text-xl font-semibold text-gray-600">Erledigt</h2>
                 <button id="clearCompletedBtn" class="text-sm text-red-500 hover:text-red-700 font-medium focus:outline-none">
                     Alle erledigten löschen
                 </button>
             </div>
-            <div id="completedTasksList" class="mt-4">
-                <p id="noCompletedTasks" class="text-gray-500 italic">Noch keine Aufgaben erledigt.</p>
-            </div>
-        </div>
-    </div>
-
-    <div id="settingsModal" class="hidden modal-overlay">
-        <div class="modal-container max-w-md">
-             <div class="modal-header">
-                 <span id="closeModalBtn" class="absolute top-4 right-6 text-gray-500 text-4xl leading-none cursor-pointer hover:text-gray-800">&times;</span>
-                 <h2 class="text-3xl font-bold text-gray-800">Einstellungen</h2>
-            </div>
-
-            <div class="modal-scrollable-content">
-                <div class="mb-6">
-                    <label class="flex items-center text-gray-700 text-lg cursor-pointer">
-                        <input type="checkbox" id="calcPriorityCheckbox" class="form-checkbox h-5 w-5 text-primary rounded mr-3">
-                        Priorität nach finanziellem Vorteil berechnen
-                    </label>
-                    <p class="text-sm text-gray-500 ml-8 mt-1">(Beeinflusst die Sortierung, wenn "Manuell Sortieren" deaktiviert ist)</p>
-                </div>
-
-                <div class="mb-8">
-                    <p class="block text-gray-700 text-base font-semibold mb-3">Orte verwalten</p>
-                    <div id="locations-list" class="mb-4">
-                        </div>
-                    <div class="flex gap-2">
-                        <input type="text" id="new-location-input" placeholder="Neuen Ort hinzufügen..." class="flex-grow p-2 border border-gray-300 rounded-lg">
-                        <button id="add-location-btn" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-lg">Hinzufügen</button>
-                    </div>
-                </div>
-
-                <div class="mb-8">
-                    <p class="block text-gray-700 text-base font-semibold mb-3">Verfügbare Zeitfenster pro Wochentag</p>
-                    <div id="dailyTimeslotsContainer" class="space-y-6">
-                        </div>
-                </div>
-            </div>
-
-            <div class="modal-footer">
-                 <div class="flex justify-end gap-4">
-                        <button id="cancelSettingsBtn" class="btn-neutral">
-                            Abbrechen
-                        </button>
-                        <button id="saveSettingsBtn" class="btn-primary py-3 px-6">
-                            Speichern
-                        </button>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <div id="editTaskModal" class="hidden modal-overlay">
-        <div class="modal-container max-w-lg">
-            
-            <div class="modal-header">
-                <span id="closeEditModalBtn" class="absolute top-4 right-6 text-gray-500 text-4xl leading-none cursor-pointer hover:text-gray-800">&times;</span>
-                <h2 class="text-3xl font-bold text-gray-800">Aufgabe bearbeiten</h2>
-            </div>
-
-            <div class="modal-scrollable-content">
-                <input type="hidden" id="edit-task-id">
-                
-                <div class="mb-6">
-                    <label for="edit-task-type" class="block text-gray-700 text-sm font-bold mb-2">Aufgabentyp:</label>
-                    <select id="edit-task-type" class="w-full p-3 border border-gray-300 rounded-lg bg-white focus:ring-primary focus:border-primary">
-                        <option value="Vorteil & Dauer">Vorteil & Dauer</option>
-                        <option value="Deadline">Deadline</option>
-                        <option value="Fixer Termin">Fixer Termin</option>
-                    </select>
-                </div>
-
-                <div class="mb-6">
-                    <label for="edit-description" class="block text-gray-700 text-sm font-bold mb-2">Beschreibung:</label>
-                    <input type="text" id="edit-description" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-primary focus:border-primary">
-                </div>
-
-                <div class="mb-6">
-                    <label for="edit-notes" class="block text-gray-700 text-sm font-bold mb-2">Notizen (Optional):</label>
-                    <textarea id="edit-notes" rows="4" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-primary focus:border-primary" placeholder="Zusätzliche Details, Links, Checklisten..."></textarea>
-                </div>
-
-                <div class="mb-6">
-                    <label for="edit-location-select" class="block text-gray-700 text-sm font-bold mb-2">Ort (Optional):</label>
-                    <select id="edit-location-select" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-primary focus:border-primary bg-white"></select>
-                </div>
-
-                <div id="editVorteilDauerInputs" class="edit-inputs mb-6 hidden">
-                    <div class="mb-4">
-                        <label class="block text-gray-700 text-sm font-bold mb-2">Geschätzte Dauer:</label>
-                        <div class="flex space-x-4">
-                            <input type="number" id="edit-estimated-duration-h" placeholder="Stunden" min="0" step="1" class="w-1/2 p-3 border border-gray-300 rounded-lg">
-                            <input type="number" id="edit-estimated-duration-m" placeholder="Minuten" min="0" max="59" step="1" class="w-1/2 p-3 border border-gray-300 rounded-lg">
-                        </div>
-                    </div>
-                    <div>
-                        <label for="edit-financial-benefit" class="block text-gray-700 text-sm font-bold mb-2">Monatlicher Finanzvorteil (€):</label>
-                        <input type="text" id="edit-financial-benefit" class="w-full p-3 border border-gray-300 rounded-lg">
-                    </div>
-                </div>
-
-                <div id="editDeadlineInputs" class="edit-inputs mb-6 hidden">
-                    <div class="mb-4">
-                        <label class="block text-gray-700 text-sm font-bold mb-2">Deadline (Datum & Zeit):</label>
-                        <div class="flex space-x-4">
-                            <input type="date" id="edit-deadline-date" class="w-1/2 p-3 border border-gray-300 rounded-lg">
-                            <input type="time" id="edit-deadline-time" class="w-1/2 p-3 border border-gray-300 rounded-lg" placeholder="Uhrzeit (optional)">
-                        </div>
-                    </div>
-                    <div>
-                        <label class="block text-gray-700 text-sm font-bold mb-2">Dauer:</label>
-                        <div class="flex space-x-4">
-                            <input type="number" id="edit-deadline-duration-h" placeholder="Stunden" min="0" step="1" class="w-1/2 p-3 border border-gray-300 rounded-lg">
-                            <input type="number" id="edit-deadline-duration-m" placeholder="Minuten" min="0" max="59" step="1" class="w-1/2 p-3 border border-gray-300 rounded-lg">
-                        </div>
-                    </div>
-                </div>
-
-                <div id="editFixerTerminInputs" class="edit-inputs mb-6 hidden">
-                    <div class="mb-4">
-                        <label class="block text-gray-700 text-sm font-bold mb-2">Datum und Uhrzeit:</label>
-                        <div class="flex space-x-4">
-                            <input type="date" id="edit-fixed-date" class="w-1/2 p-3 border border-gray-300 rounded-lg">
-                            <input type="time" id="edit-fixed-time" class="w-1/2 p-3 border border-gray-300 rounded-lg">
-                        </div>
-                    </div>
-                    <div>
-                        <label class="block text-gray-700 text-sm font-bold mb-2">Dauer:</label>
-                        <div class="flex space-x-4">
-                            <input type="number" id="edit-fixed-duration-h" placeholder="Stunden" min="0" step="1" class="w-1/2 p-3 border border-gray-300 rounded-lg">
-                            <input type="number" id="edit-fixed-duration-m" placeholder="Minuten" min="0" max="59" step="1" class="w-1/2 p-3 border border-gray-300 rounded-lg">
-                        </div>
-                    </div>
-                </div>
-
-                <div class="mb-4 p-4 bg-gray-100 rounded-lg shadow-inner">
-                    <h3 class="text-gray-700 text-sm font-bold mb-3">Zugewiesen an (Team):</h3>
-                    <div id="assigned-users-list-edit" class="mb-4 space-y-2">
-                        </div>
-                    
-                    <div class="relative">
-                        <input type="text" id="user-search-input-edit" placeholder="E-Mail suchen zum Hinzufügen..." class="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
-                        <div id="user-search-results-edit" class="absolute z-10 w-full bg-white border border-gray-300 rounded-lg mt-1 shadow-lg max-h-40 overflow-y-auto hidden">
-                            </div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="modal-footer">
-                <div class="flex justify-between">
-                    <button id="deleteTaskBtn" class="bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-6 rounded-lg shadow-md transition duration-300 ease-in-out">
-                        Löschen
-                    </button>
-                    <div class="flex gap-4">
-                        <button id="cancelEditModalBtn" class="btn-neutral">
-                            Abbrechen
-                        </button>
-                        <button id="saveTaskBtn" class="btn-primary py-3 px-6">
-                            Speichern & Neu planen
-                        </button>
-                    </div>
-                </div>
+            <div id="completedTasksList" class="drop-zone">
+                <p id="noCompletedTasks" class="text-gray-500 italic p-4 text-center">Noch keine Aufgaben erledigt.</p>
             </div>
         </div>
     </div>
