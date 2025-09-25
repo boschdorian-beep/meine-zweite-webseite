@@ -279,10 +279,187 @@
 
     <div id="toast-container"></div>
 
+    <div id="loading-spinner" class="text-center">
+        <div class="animate-spin rounded-full h-16 w-16 border-b-4 border-primary mx-auto mb-4"></div>
+        <p class="text-gray-600">Verbinde und prüfe Login...</p>
+    </div>
+
+    <div id="auth-container" class="hidden container p-8 max-w-md w-full">
+        <h1 class="text-3xl font-bold text-gray-800 mb-6 text-center">Willkommen beim Zeitplan</h1>
+        
+        <div id="login-view">
+            <h2 class="text-xl font-semibold mb-4">Login</h2>
+            <input type="email" id="login-email" placeholder="E-Mail Adresse" class="w-full p-3 mb-4 border border-gray-300 rounded-lg focus:ring-primary focus:border-primary">
+            <input type="password" id="login-password" placeholder="Passwort" class="w-full p-3 mb-4 border border-gray-300 rounded-lg focus:ring-primary focus:border-primary">
+            <button id="login-btn" class="w-full btn-primary mb-4">Anmelden</button>
+            <p class="text-center text-gray-600">Noch kein Konto? <a href="#" id="show-register" class="text-blue-600 hover:underline">Registrieren</a></p>
+        </div>
+
+        <div id="register-view" class="hidden">
+            <h2 class="text-xl font-semibold mb-4">Registrieren</h2>
+            <input type="text" id="register-displayname" placeholder="Dein Name (z.B. Max Mustermann)" class="w-full p-3 mb-4 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
+            <input type="text" id="register-shortname" placeholder="Kürzel (z.B. MM, max 5 Zeichen)" maxlength="5" class="w-full p-3 mb-4 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
+            
+            <input type="email" id="register-email" placeholder="E-Mail Adresse" class="w-full p-3 mb-4 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
+            <input type="password" id="register-password" placeholder="Passwort (min. 6 Zeichen)" class="w-full p-3 mb-4 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
+            <button id="register-btn" class="w-full btn-secondary mb-4">Konto erstellen</button>
+            <p class="text-center text-gray-600">Bereits registriert? <a href="#" id="show-login" class="text-primary hover:underline">Anmelden</a></p>
+        </div>
+
+        <div id="verification-view" class="hidden">
+            <h2 class="text-xl font-semibold mb-4 text-center">E-Mail Adresse bestätigen</h2>
+            <div class="bg-blue-100 border-l-4 border-blue-500 text-blue-700 p-4 mb-6" role="alert">
+                <p class="font-bold">Fast geschafft!</p>
+                <p>Wir haben eine Bestätigungs-E-Mail an <strong id="verification-email-display">dein Postfach</strong> gesendet.</p>
+                <p>Bitte klicke auf den Link in der E-Mail, um deinen Zugang freizuschalten (prüfe auch den Spam-Ordner).</p>
+            </div>
+            
+            <button id="check-verification-btn" class="w-full btn-primary mb-4">Ich habe bestätigt (Status prüfen)</button>
+            
+            <div class="flex justify-between text-sm">
+                <button id="resend-verification-btn" class="text-blue-600 hover:underline">E-Mail erneut senden</button>
+                <button id="logout-verification-btn" class="text-gray-600 hover:underline">Abmelden</button>
+            </div>
+        </div>
+
+        <p id="auth-error" class="text-red-500 mt-4 text-center"></p>
+    </div>
+
     <div id="app-container" class="hidden container p-5 md:p-8 max-w-5xl w-full">
         
-        <div id="filter-bar" class="mb-6 p-4 bg-white border border-gray-200 rounded-lg shadow-sm flex flex-col lg:flex-row justify-between items-start lg:space-x-6 space-y-4 lg:space-y-0 hidden">
+        <div class="flex justify-between items-center mb-8">
+            <h1 class="text-3xl font-bold text-gray-800">Meine To-Do-Liste</h1>
+            <div class="flex items-center space-x-4">
+                <label class="flex items-center text-gray-700 cursor-pointer">
+                    <input type="checkbox" id="toggleDragDrop" class="form-checkbox h-5 w-5 text-primary rounded mr-2">
+                    Manuell Sortieren
+                </label>
+                <button id="settingsBtn" class="btn-icon" title="Einstellungen" aria-label="Einstellungen öffnen">
+                    <i class="fas fa-cog"></i>
+                </button>
+                <button id="logout-btn" class="btn-danger" title="Logout" aria-label="Ausloggen">
+                    <i class="fas fa-sign-out-alt"></i>
+                </button>
             </div>
+        </div>
+
+        <div class="mb-6 p-6 bg-white shadow-md rounded-xl border border-gray-200">
+            
+            <div class="flex flex-col lg:flex-row gap-4 mb-4">
+                <div class="flex flex-col gap-4 flex-grow">
+                    <label for="newTaskInput" class="sr-only">Neue Aufgabe</label>
+                    <input type="text" id="newTaskInput" placeholder="Was muss getan werden?" class="w-full text-lg p-4 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary transition duration-200">
+                    
+                    <div class="flex gap-4">
+                        <label for="newNotesInput" class="sr-only">Notizen</label>
+                        <input type="text" id="newNotesInput" placeholder="Details oder Notizen (optional)..." class="flex-grow p-3 border border-gray-300 rounded-lg">
+                        
+                        <label for="newLocationSelect" class="sr-only">Ort</label>
+                        <select id="newLocationSelect" class="p-3 border border-gray-300 rounded-lg bg-white w-1/4">
+                            </select>
+                    </div>
+                </div>
+
+                <div class="lg:w-1/4 p-4 bg-gray-100 rounded-lg shadow-inner">
+                    <h3 class="text-gray-700 text-sm font-bold mb-3">Zuweisen an:</h3>
+                    <div id="assigned-users-list-create" class="mb-4 space-y-2 max-h-24 overflow-y-auto pr-2">
+                        </div>
+                    
+                    <div class="relative">
+                        <input type="text" id="user-search-input-create" placeholder="E-Mail suchen..." class="w-full p-2 border border-gray-300 rounded-lg text-sm focus:ring-blue-500 focus:border-blue-500">
+                        <div id="user-search-results-create" class="absolute z-10 w-full bg-white border border-gray-300 rounded-lg mt-1 shadow-lg max-h-40 overflow-y-auto hidden">
+                            </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex flex-col md:flex-row justify-between items-start space-y-4 md:space-y-0 md:space-x-4">
+                <div class="flex bg-gray-200 rounded-lg overflow-hidden w-full md:w-auto" id="taskTypeButtonsContainer">
+                    <button data-type="Vorteil & Dauer" class="task-type-btn py-3 px-4 text-center font-semibold rounded-l-lg transition duration-200 flex-1">
+                        Vorteil & Dauer
+                    </button>
+                    <button data-type="Deadline" class="task-type-btn py-3 px-4 text-center font-semibold transition duration-200 flex-1">
+                        Deadline
+                    </button>
+                    <button data-type="Fixer Termin" class="task-type-btn py-3 px-4 text-center font-semibold rounded-r-lg transition duration-200 flex-1">
+                        Fixer Termin
+                    </button>
+                </div>
+                
+                <button id="addTaskBtn" class="btn-primary py-4 px-12 w-full md:w-auto text-lg font-bold shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 transition duration-200">
+                    <i class="fas fa-plus mr-2"></i> Hinzufügen
+                </button>
+            </div>
+
+            <div id="vorteilDauerInputs" class="task-inputs mt-6 hidden p-4 bg-gray-50 rounded-lg border">
+                <div class="mb-4 flex flex-col md:flex-row md:items-center space-y-2 md:space-y-0 md:space-x-4">
+                    <label class="block text-gray-700 text-sm font-bold md:w-1/3">Geschätzte Dauer:</label>
+                    <div class="flex space-x-2 md:w-2/3 w-full">
+                        <input type="number" id="estimated-duration-h" value="1" min="0" placeholder="Stunden" class="w-1/2 p-3 border border-gray-300 rounded-lg">
+                        <input type="number" id="estimated-duration-m" value="0" min="0" max="59" placeholder="Minuten" class="w-1/2 p-3 border border-gray-300 rounded-lg">
+                    </div>
+                </div>
+                <div class="flex flex-col md:flex-row md:items-center space-y-2 md:space-y-0 md:space-x-4">
+                    <label for="monthly-financial-benefit" class="block text-gray-700 text-sm font-bold md:w-1/3">Monatl. Finanzvorteil (€):</label>
+                    <input type="text" id="monthly-financial-benefit" placeholder="Zahl (optional)" class="md:w-2/3 p-3 border border-gray-300 rounded-lg w-full">
+                </div>
+            </div>
+
+            <div id="deadlineInputs" class="task-inputs mt-6 hidden p-4 bg-gray-50 rounded-lg border">
+                <div class="mb-4 flex flex-col md:flex-row md:items-center space-y-2 md:space-y-0 md:space-x-4">
+                    <label class="block text-gray-700 text-sm font-bold md:w-1/3">Deadline (Datum & Zeit):</label>
+                    <div class="flex space-x-2 md:w-2/3 w-full">
+                        <input type="date" id="deadline-date" class="w-1/2 p-3 border border-gray-300 rounded-lg">
+                        <input type="time" id="deadline-time" class="w-1/2 p-3 border border-gray-300 rounded-lg" placeholder="Uhrzeit (optional)">
+                    </div>
+                </div>
+                <div class="flex flex-col md:flex-row md:items-center space-y-2 md:space-y-0 md:space-x-4">
+                    <label class="block text-gray-700 text-sm font-bold md:w-1/3">Dauer:</label>
+                    <div class="flex space-x-2 md:w-2/3 w-full">
+                        <input type="number" id="deadline-duration-h" value="1" min="0" placeholder="Stunden" class="w-1/2 p-3 border border-gray-300 rounded-lg">
+                        <input type="number" id="deadline-duration-m" value="0" min="0" max="59" placeholder="Minuten" class="w-1/2 p-3 border border-gray-300 rounded-lg">
+                    </div>
+                </div>
+            </div>
+
+            <div id="fixerTerminInputs" class="task-inputs mt-6 hidden p-4 bg-gray-50 rounded-lg border">
+                <div class="mb-4 flex flex-col md:flex-row md:items-center space-y-2 md:space-y-0 md:space-x-4">
+                    <label class="block text-gray-700 text-sm font-bold md:w-1/3">Datum und Uhrzeit:</label>
+                    <div class="flex space-x-2 md:w-2/3 w-full">
+                        <input type="date" id="fixed-date" class="w-1/2 p-3 border border-gray-300 rounded-lg">
+                        <input type="time" id="fixed-time" class="w-1/2 p-3 border border-gray-300 rounded-lg" placeholder="Uhrzeit (optional)">
+                    </div>
+                </div>
+                <div class="flex flex-col md:flex-row md:items-center space-y-2 md:space-y-0 md:space-x-4">
+                    <label class="block text-gray-700 text-sm font-bold md:w-1/3">Dauer:</label>
+                    <div class="flex space-x-2 md:w-2/3 w-full">
+                        <input type="number" id="fixed-duration-h" value="1" min="0" placeholder="Stunden" class="w-1/2 p-3 border border-gray-300 rounded-lg">
+                        <input type="number" id="fixed-duration-m" value="0" min="0" max="59" placeholder="Minuten" class="w-1/2 p-3 border border-gray-300 rounded-lg">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="filter-bar" class="mb-6 p-4 bg-white border border-gray-200 rounded-lg shadow-sm flex flex-col lg:flex-row justify-between items-start lg:space-x-6 space-y-4 lg:space-y-0 hidden">
+            
+            <div class="flex-1 w-full lg:w-auto">
+                <h3 class="text-sm font-semibold text-gray-700 mb-3">Priorisiere Ort(e):</h3>
+                <div id="location-filters" class="flex flex-wrap gap-2">
+                    </div>
+            </div>
+
+            <div class="flex-1 lg:border-l lg:pl-6 border-t lg:border-t-0 pt-4 lg:pt-0 w-full lg:w-auto">
+                 <h3 class="text-sm font-semibold text-gray-700 mb-3">Priorisiere Team (Gemeinsame Aufgaben):</h3>
+                <div id="user-filters" class="flex flex-wrap gap-2">
+                    </div>
+            </div>
+
+            <div>
+                <button id="clear-filters-btn" class="text-red-500 hover:text-red-700 font-medium text-sm mt-1 disabled:opacity-50" disabled>
+                    <i class="fas fa-times mr-1"></i> Filter löschen
+                </button>
+            </div>
+        </div>
 
         <div id="filter-active-message" class="hidden mb-6 p-4 bg-violet-100 border-l-4 border-accent text-violet-800">
             <p class="font-bold">Filter aktiv</p>
@@ -332,6 +509,166 @@
             </div>
             <div id="completedTasksList" class="drop-zone">
                 <p id="noCompletedTasks" class="text-gray-500 italic p-4 text-center">Noch keine Aufgaben erledigt.</p>
+            </div>
+        </div>
+    </div>
+
+    <div id="settingsModal" class="hidden modal-overlay">
+        <div class="modal-container max-w-md">
+             <div class="modal-header">
+                 <span id="closeModalBtn" class="absolute top-4 right-6 text-gray-500 text-4xl leading-none cursor-pointer hover:text-gray-800">&times;</span>
+                 <h2 class="text-3xl font-bold text-gray-800">Einstellungen</h2>
+            </div>
+
+            <div class="modal-scrollable-content">
+                <div class="mb-6">
+                    <label class="flex items-center text-gray-700 text-lg cursor-pointer">
+                        <input type="checkbox" id="calcPriorityCheckbox" class="form-checkbox h-5 w-5 text-primary rounded mr-3">
+                        Priorität nach finanziellem Vorteil berechnen
+                    </label>
+                    <p class="text-sm text-gray-500 ml-8 mt-1">(Beeinflusst die Sortierung, wenn "Manuell Sortieren" deaktiviert ist)</p>
+                </div>
+
+                <div class="mb-8">
+                    <p class="block text-gray-700 text-base font-semibold mb-3">Orte verwalten</p>
+                    <div id="locations-list" class="mb-4">
+                        </div>
+                    <div class="flex gap-2">
+                        <input type="text" id="new-location-input" placeholder="Neuen Ort hinzufügen..." class="flex-grow p-2 border border-gray-300 rounded-lg">
+                        <button id="add-location-btn" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-lg">Hinzufügen</button>
+                    </div>
+                </div>
+
+                <div class="mb-8">
+                    <p class="block text-gray-700 text-base font-semibold mb-3">Verfügbare Zeitfenster pro Wochentag</p>
+                    <div id="dailyTimeslotsContainer" class="space-y-6">
+                        </div>
+                </div>
+            </div>
+
+            <div class="modal-footer">
+                 <div class="flex justify-end gap-4">
+                        <button id="cancelSettingsBtn" class="btn-neutral">
+                            Abbrechen
+                        </button>
+                        <button id="saveSettingsBtn" class="btn-primary py-3 px-6">
+                            Speichern
+                        </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="editTaskModal" class="hidden modal-overlay">
+        <div class="modal-container max-w-lg">
+            
+            <div class="modal-header">
+                <span id="closeEditModalBtn" class="absolute top-4 right-6 text-gray-500 text-4xl leading-none cursor-pointer hover:text-gray-800">&times;</span>
+                <h2 class="text-3xl font-bold text-gray-800">Aufgabe bearbeiten</h2>
+            </div>
+
+            <div class="modal-scrollable-content">
+                <input type="hidden" id="edit-task-id">
+                
+                <div class="mb-6">
+                    <label for="edit-task-type" class="block text-gray-700 text-sm font-bold mb-2">Aufgabentyp:</label>
+                    <select id="edit-task-type" class="w-full p-3 border border-gray-300 rounded-lg bg-white focus:ring-primary focus:border-primary">
+                        <option value="Vorteil & Dauer">Vorteil & Dauer</option>
+                        <option value="Deadline">Deadline</option>
+                        <option value="Fixer Termin">Fixer Termin</option>
+                    </select>
+                </div>
+
+                <div class="mb-6">
+                    <label for="edit-description" class="block text-gray-700 text-sm font-bold mb-2">Beschreibung:</label>
+                    <input type="text" id="edit-description" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-primary focus:border-primary">
+                </div>
+
+                <div class="mb-6">
+                    <label for="edit-notes" class="block text-gray-700 text-sm font-bold mb-2">Notizen (Optional):</label>
+                    <textarea id="edit-notes" rows="4" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-primary focus:border-primary" placeholder="Zusätzliche Details, Links, Checklisten..."></textarea>
+                </div>
+
+                <div class="mb-6">
+                    <label for="edit-location-select" class="block text-gray-700 text-sm font-bold mb-2">Ort (Optional):</label>
+                    <select id="edit-location-select" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-primary focus:border-primary bg-white"></select>
+                </div>
+
+                <div id="editVorteilDauerInputs" class="edit-inputs mb-6 hidden">
+                    <div class="mb-4">
+                        <label class="block text-gray-700 text-sm font-bold mb-2">Geschätzte Dauer:</label>
+                        <div class="flex space-x-4">
+                            <input type="number" id="edit-estimated-duration-h" placeholder="Stunden" min="0" step="1" class="w-1/2 p-3 border border-gray-300 rounded-lg">
+                            <input type="number" id="edit-estimated-duration-m" placeholder="Minuten" min="0" max="59" step="1" class="w-1/2 p-3 border border-gray-300 rounded-lg">
+                        </div>
+                    </div>
+                    <div>
+                        <label for="edit-financial-benefit" class="block text-gray-700 text-sm font-bold mb-2">Monatlicher Finanzvorteil (€):</label>
+                        <input type="text" id="edit-financial-benefit" class="w-full p-3 border border-gray-300 rounded-lg">
+                    </div>
+                </div>
+
+                <div id="editDeadlineInputs" class="edit-inputs mb-6 hidden">
+                    <div class="mb-4">
+                        <label class="block text-gray-700 text-sm font-bold mb-2">Deadline (Datum & Zeit):</label>
+                        <div class="flex space-x-4">
+                            <input type="date" id="edit-deadline-date" class="w-1/2 p-3 border border-gray-300 rounded-lg">
+                            <input type="time" id="edit-deadline-time" class="w-1/2 p-3 border border-gray-300 rounded-lg" placeholder="Uhrzeit (optional)">
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-gray-700 text-sm font-bold mb-2">Dauer:</label>
+                        <div class="flex space-x-4">
+                            <input type="number" id="edit-deadline-duration-h" placeholder="Stunden" min="0" step="1" class="w-1/2 p-3 border border-gray-300 rounded-lg">
+                            <input type="number" id="edit-deadline-duration-m" placeholder="Minuten" min="0" max="59" step="1" class="w-1/2 p-3 border border-gray-300 rounded-lg">
+                        </div>
+                    </div>
+                </div>
+
+                <div id="editFixerTerminInputs" class="edit-inputs mb-6 hidden">
+                    <div class="mb-4">
+                        <label class="block text-gray-700 text-sm font-bold mb-2">Datum und Uhrzeit:</label>
+                        <div class="flex space-x-4">
+                            <input type="date" id="edit-fixed-date" class="w-1/2 p-3 border border-gray-300 rounded-lg">
+                            <input type="time" id="edit-fixed-time" class="w-1/2 p-3 border border-gray-300 rounded-lg">
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-gray-700 text-sm font-bold mb-2">Dauer:</label>
+                        <div class="flex space-x-4">
+                            <input type="number" id="edit-fixed-duration-h" placeholder="Stunden" min="0" step="1" class="w-1/2 p-3 border border-gray-300 rounded-lg">
+                            <input type="number" id="edit-fixed-duration-m" placeholder="Minuten" min="0" max="59" step="1" class="w-1/2 p-3 border border-gray-300 rounded-lg">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mb-4 p-4 bg-gray-100 rounded-lg shadow-inner">
+                    <h3 class="text-gray-700 text-sm font-bold mb-3">Zugewiesen an (Team):</h3>
+                    <div id="assigned-users-list-edit" class="mb-4 space-y-2">
+                        </div>
+                    
+                    <div class="relative">
+                        <input type="text" id="user-search-input-edit" placeholder="E-Mail suchen zum Hinzufügen..." class="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
+                        <div id="user-search-results-edit" class="absolute z-10 w-full bg-white border border-gray-300 rounded-lg mt-1 shadow-lg max-h-40 overflow-y-auto hidden">
+                            </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="modal-footer">
+                <div class="flex justify-between">
+                    <button id="deleteTaskBtn" class="bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-6 rounded-lg shadow-md transition duration-300 ease-in-out">
+                        Löschen
+                    </button>
+                    <div class="flex gap-4">
+                        <button id="cancelEditModalBtn" class="btn-neutral">
+                            Abbrechen
+                        </button>
+                        <button id="saveTaskBtn" class="btn-primary py-3 px-6">
+                            Speichern & Neu planen
+                        </button>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
