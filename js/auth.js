@@ -1,11 +1,8 @@
 // js/auth.js
-// GEÄNDERT: Importiere sendEmailVerification
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword, onAuthStateChanged, signOut, sendEmailVerification } from 'https://www.gstatic.com/firebasejs/9.23.0/firebase-auth.js';
 import { auth } from './firebase-init.js';
-// db, doc, setDoc, getDoc werden nicht mehr direkt hier benötigt, sondern in collaboration.js
 import { state } from './state.js';
 import { detachListeners } from './database.js';
-// NEU: Importiere Funktionen für das Benutzerprofil
 import { initializeUserProfile, promptForMissingProfileData } from './collaboration.js';
 
 // UI Elements
@@ -15,8 +12,9 @@ const elements = {
     appContainer: document.getElementById('app-container'),
     loginView: document.getElementById('login-view'),
     registerView: document.getElementById('register-view'),
+    // NEU: View für E-Mail Verifizierung
+    verificationView: document.getElementById('verification-view'),
     authError: document.getElementById('auth-error'),
-    // Login/Register inputs werden jetzt in den Handlern direkt gelesen
     body: document.body,
 };
 
@@ -26,25 +24,31 @@ export function initializeAuth(onLoginSuccess) {
 
     // Der Listener reagiert auf Login, Logout und Session-Wiederherstellung
     onAuthStateChanged(auth, async (user) => {
+        // Wir zeigen nicht sofort den Ladebildschirm, um Flackern zu vermeiden, 
+        // stellen aber sicher, dass der richtige Bildschirm angezeigt wird.
+
         if (user) {
             // Benutzer ist angemeldet
-            state.user = user;
-            
+
+            // GEÄNDERT: 2. Prüfe E-Mail Verifizierung
             if (!user.emailVerified) {
-                console.log("E-Mail noch nicht verifiziert.");
-                // Hinweis: Aktuell wird der Zugang erlaubt, aber man könnte ihn hier auch blockieren.
+                console.log("E-Mail noch nicht verifiziert. Blockiere Zugang.");
+                // Zeige den Verifizierungsbildschirm an
+                showVerificationScreen(user.email);
+                // WICHTIG: Hier abbrechen. Wir betrachten den Nutzer nicht als vollständig eingeloggt.
+                return;
             }
 
-            // GEÄNDERT: Sicherstellen, dass das Profil existiert und vollständig ist
+            // 3. Sicherstellen, dass das Profil existiert und vollständig ist
+            state.user = user;
             const profile = await initializeUserProfile(user);
             
-            // NEU: Prüfe, ob Daten fehlen (Migration für bestehende Nutzer)
             if (!profile || !profile.displayName || !profile.shortName) {
                 // Dies blockiert die Ausführung, bis der Nutzer die Daten eingegeben hat.
                 await promptForMissingProfileData(user);
             }
 
-            // Rufe den Callback auf (main.js startet dann die Daten-Listener)
+            // 4. Rufe den Callback auf (main.js startet dann die Daten-Listener)
             // Nur wenn das Profil nun vollständig ist.
             if (state.userProfile && state.userProfile.shortName) {
                 onLoginSuccess();
@@ -72,10 +76,12 @@ function handleLogoutCleanup() {
     
     // 2. Lösche lokalen State (verhindert Datenlecks zwischen Usern)
     state.user = null;
-    state.userProfile = null; // NEU
+    state.userProfile = null;
     state.tasks = [];
     state.schedule = [];
     state.settings = {};
+    // NEU: State für neue Aufgaben zurücksetzen
+    state.newTaskAssignment = [];
 }
 
 
@@ -91,11 +97,34 @@ function showLoginScreen() {
     elements.loadingSpinner.classList.add('hidden');
     elements.appContainer.classList.add('hidden');
     elements.authContainer.classList.remove('hidden');
+    // Sicherstellen, dass der Login-View aktiv ist
+    elements.loginView.classList.remove('hidden');
+    elements.registerView.classList.add('hidden');
+    if (elements.verificationView) elements.verificationView.classList.add('hidden');
+    elements.body.classList.remove('app-layout');
+}
+
+// NEU: Zeigt den Bildschirm an, wenn die E-Mail noch nicht verifiziert ist
+function showVerificationScreen(email) {
+    if (!elements.verificationView) {
+        // Fallback, falls das HTML Element fehlt (sollte nicht passieren)
+        alert("Bitte bestätige deine E-Mail Adresse.");
+        signOut(auth);
+        return;
+    }
+    document.getElementById('verification-email-display').textContent = email || 'deinem Postfach';
+    elements.loadingSpinner.classList.add('hidden');
+    elements.appContainer.classList.add('hidden');
+    elements.authContainer.classList.remove('hidden');
+    
+    elements.loginView.classList.add('hidden');
+    elements.registerView.classList.add('hidden');
+    elements.verificationView.classList.remove('hidden');
     elements.body.classList.remove('app-layout');
 }
 
 export function showAppScreen() {
-    // NEU: Sicherstellen, dass das Profil vollständig geladen ist, bevor die App angezeigt wird
+    // Sicherstellen, dass das Profil vollständig geladen ist, bevor die App angezeigt wird
     if (!state.userProfile || !state.userProfile.shortName) {
         console.log("Warte auf vollständiges Profil...");
         return;
@@ -125,21 +154,20 @@ function setupAuthUIEvents() {
         showLoadingScreen();
         try {
             await signInWithEmailAndPassword(auth, email, password);
-            // onAuthStateChanged kümmert sich um den Rest
+            // onAuthStateChanged kümmert sich um den Rest (inkl. Prüfung der Verifizierung)
         } catch (error) {
             showLoginScreen();
             displayError(`Login fehlgeschlagen: ${error.message}`);
         }
     });
 
-    // Register (Stark überarbeitet)
+    // Register
     document.getElementById('register-btn').addEventListener('click', async () => {
         displayError('');
 
         const email = document.getElementById('register-email').value.toLowerCase().trim();
         const password = document.getElementById('register-password').value;
         const displayName = document.getElementById('register-displayname').value.trim();
-        // Kürzel wird normalisiert (Großbuchstaben, max 5 Zeichen wie im HTML definiert)
         const shortName = document.getElementById('register-shortname').value.trim().toUpperCase();
 
         if (!displayName || !shortName) {
@@ -152,16 +180,15 @@ function setupAuthUIEvents() {
             const userCredential = await createUserWithEmailAndPassword(auth, email, password);
             const user = userCredential.user;
 
-            // NEU: Sende E-Mail Verifizierung
+            // Sende E-Mail Verifizierung
             try {
                 await sendEmailVerification(user);
-                alert("Registrierung erfolgreich! Bitte überprüfe dein E-Mail-Postfach (auch Spam-Ordner), um deine Adresse zu bestätigen.");
+                // Der Benutzer wird automatisch angemeldet, aber onAuthStateChanged leitet ihn zum Verifizierungsbildschirm weiter.
             } catch (error) {
                 console.error("Fehler beim Senden der Verifizierungs-E-Mail:", error);
-                // Wir blockieren die Registrierung nicht, falls das Senden fehlschlägt.
             }
 
-            // NEU: Erstelle das Benutzerprofil in Firestore mit den zusätzlichen Daten
+            // Erstelle das Benutzerprofil in Firestore
             await initializeUserProfile(user, { displayName, shortName });
 
             // onAuthStateChanged kümmert sich um den Rest
@@ -172,22 +199,49 @@ function setupAuthUIEvents() {
         }
     });
 
-    // Logout (Der onAuthStateChanged Listener kümmert sich um das Cleanup)
+    // Logout
     document.getElementById('logout-btn').addEventListener('click', () => {
         signOut(auth);
     });
 
-    // View toggles (Unverändert)
+    // NEU: Event Listener für den Verifizierungsbildschirm
+    if (elements.verificationView) {
+        document.getElementById('logout-verification-btn').addEventListener('click', () => {
+            signOut(auth);
+        });
+
+        document.getElementById('resend-verification-btn').addEventListener('click', async () => {
+            const user = auth.currentUser;
+            if (user && !user.emailVerified) {
+                try {
+                    await sendEmailVerification(user);
+                    alert("Verifizierungs-E-Mail erneut gesendet! Bitte überprüfe dein Postfach (auch Spam-Ordner).");
+                } catch (error) {
+                    alert("Fehler beim erneuten Senden der E-Mail: " + error.message);
+                }
+            }
+        });
+
+        document.getElementById('check-verification-btn').addEventListener('click', () => {
+            // Der einfachste Weg, den Auth-Status neu zu prüfen, ist das Neuladen der Seite.
+            // Firebase aktualisiert den Token beim Neuladen.
+            window.location.reload();
+        });
+    }
+
+    // View toggles
     document.getElementById('show-register').addEventListener('click', (e) => {
         e.preventDefault();
         elements.loginView.classList.add('hidden');
         elements.registerView.classList.remove('hidden');
+        if (elements.verificationView) elements.verificationView.classList.add('hidden');
         displayError('');
     });
     document.getElementById('show-login').addEventListener('click', (e) => {
         e.preventDefault();
         elements.registerView.classList.add('hidden');
         elements.loginView.classList.remove('hidden');
+        if (elements.verificationView) elements.verificationView.classList.add('hidden');
         displayError('');
     });
 }
