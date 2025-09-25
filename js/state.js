@@ -13,7 +13,11 @@ export const state = {
     
     // Zustand für die Filterleiste (Phase 2)
     filters: {
-        prioritizedLocation: null, // String des Ortsnamens
+        // GEÄNDERT: von prioritizedLocation zu prioritizedLocations (Array)
+        prioritizedLocations: [], // Array von Ortsnamen
         prioritizedUserIds: [],      // Array von UIDs der ausgewählten Benutzer
-    }
+    },
+
+    // NEU: Zustand für die Zuweisungen im "Neue Aufgabe"-Formular
+    newTaskAssignment: [] // Array von Profil-Objekten {uid, email, displayName, shortName}
 };
