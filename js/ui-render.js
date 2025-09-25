@@ -7,7 +7,7 @@ import { getScheduleItemDuration, getDailyAvailableHours, getOriginalTotalDurati
 import { attachTaskInteractions } from './ui-actions.js';
 import { getShortNamesForUids, getAllUserProfilesInTasks } from './collaboration.js';
 
-// Element Caching
+// (Element Caching unverändert)
 const elements = {
     todayTasksList: document.getElementById('todayTasksList'),
     tomorrowTasksList: document.getElementById('tomorrowTasksList'),
@@ -18,19 +18,18 @@ const elements = {
     noFutureTasks: document.getElementById('noFutureTasks'),
     noCompletedTasks: document.getElementById('noCompletedTasks'),
     todayAvailableTime: document.getElementById('todayAvailableTime'),
-    // NEU: Datumsanzeige
-    todayDateDisplay: document.getElementById('todayDateDisplay'),
-    tomorrowDateDisplay: document.getElementById('tomorrowDateDisplay'),
+    // NEU: Container für Ortsverwaltung
+    locationsListContainer: document.getElementById('locations-list'),
     tomorrowAvailableTime: document.getElementById('tomorrowAvailableTime'),
     futureAvailableTime: document.getElementById('futureAvailableTime'),
     dailyTimeslotsContainer: document.getElementById('dailyTimeslotsContainer'),
     calcPriorityCheckbox: document.getElementById('calcPriorityCheckbox'),
     toggleDragDrop: document.getElementById('toggleDragDrop'),
-    // Container für Ortsverwaltung
-    locationsListContainer: document.getElementById('locations-list'),
+    // NEU: Datumsanzeige
+    todayDateDisplay: document.getElementById('todayDateDisplay'),
+    tomorrowDateDisplay: document.getElementById('tomorrowDateDisplay'),
 };
-
-// Elemente für die Filterleiste
+// NEU: Elemente für die Filterleiste
 const filterElements = {
     filterBar: document.getElementById('filter-bar'),
     locationFilters: document.getElementById('location-filters'),
@@ -39,16 +38,20 @@ const filterElements = {
     filterActiveMessage: document.getElementById('filter-active-message'),
 };
 
+// GEÄNDERT: Muss async sein, da renderSchedule() und renderCompletedTasks() jetzt async sind
 export async function renderApp() {
+    // Rendere Schedule (lädt asynchron die Benutzerkürzel)
     await renderSchedule();
     await renderCompletedTasks();
-    await renderFilterBar();
-    populateLocationDropdowns();
+    await renderFilterBar(); // NEU: Filterleiste rendern
+    populateLocationDropdowns(); // NEU: Dropdowns befüllen
     updateAvailableTimeDisplays();
     updateDateDisplays(); // NEU: Aktualisiere die Datumsanzeigen
+    // (Toggle State Update unverändert)
     if (elements.toggleDragDrop) {
         elements.toggleDragDrop.checked = !state.settings.autoPriority;
     }
+    // Interaktionen müssen nach dem Rendern angehängt werden
     attachTaskInteractions();
 }
 
@@ -69,7 +72,7 @@ function updateDateDisplays() {
 }
 
 /**
- * Befüllt die Location-Dropdowns mit den Orten aus den Einstellungen.
+ * NEU: Befüllt die Location-Dropdowns mit den Orten aus den Einstellungen.
  */
 function populateLocationDropdowns(selectedLocation = null) {
     const locations = state.settings.locations || [];
@@ -86,18 +89,24 @@ function populateLocationDropdowns(selectedLocation = null) {
             option.textContent = location;
             select.appendChild(option);
         });
+        // Setze den zuvor ausgewählten Wert wieder
         select.value = currentValue;
     });
 }
 
 /**
- * Rendert die Filterleiste basierend auf den aktuellen Aufgaben.
+ * NEU: Rendert die Filterleiste basierend auf den aktuellen Aufgaben.
  */
 async function renderFilterBar() {
     const activeTasks = state.tasks.filter(t => !t.completed);
+
+    // KORREKTUR: 1. Orte aus den zentralen Einstellungen laden
     const allLocations = state.settings.locations || [];
+
+    // 2. Teammitglieder sammeln
     const allUsers = await getAllUserProfilesInTasks();
 
+    // Verstecke die Leiste, wenn es keine Filteroptionen gibt
     if (allLocations.length === 0 && allUsers.length === 0) {
         filterElements.filterBar.classList.add('hidden');
         return;
@@ -151,7 +160,7 @@ async function renderFilterBar() {
 }
 
 /**
- * Prüft, ob ein Schedule-Item den aktiven Filtern entspricht.
+ * NEU: Prüft, ob ein Schedule-Item den aktiven Filtern entspricht.
  */
 function isItemPrioritized(item) {
     // GEÄNDERT: Prüfe prioritizedLocations (Array)
@@ -169,7 +178,12 @@ function isItemPrioritized(item) {
     return matchesLocation || matchesUsers;
 }
 
+/**
+ * Rendert den aktiven Zeitplan (state.schedule).
+ * GEÄNDERT: Muss async sein, um Benutzerkürzel zu laden.
+ */
 async function renderSchedule() {
+    // Clear active lists
     [elements.todayTasksList, elements.tomorrowTasksList, elements.futureTasksList].forEach(list => list.innerHTML = '');
     [elements.noTodayTasks, elements.noTomorrowTasks, elements.noFutureTasks].forEach(msg => msg.style.display = 'block');
 
@@ -180,8 +194,10 @@ async function renderSchedule() {
     overmorrow.setDate(overmorrow.getDate() + 2);
 
     const activeSchedule = state.schedule;
+
     const todayItems = [], tomorrowItems = [], futureItems = [], unscheduledItems = [];
 
+    // Gruppiere Items nach Datum
     activeSchedule.forEach(item => {
         const itemPlannedDate = parseDateString(item.plannedDate);
 
@@ -190,6 +206,7 @@ async function renderSchedule() {
             return;
         }
 
+        // Wenn das geplante Datum in der Vergangenheit liegt, gehört es zu HEUTE (Überfällig).
         if (itemPlannedDate.getTime() <= today.getTime()) {
             todayItems.push(item);
         } else if (itemPlannedDate.getTime() === tomorrow.getTime()) {
@@ -199,12 +216,15 @@ async function renderSchedule() {
         }
     });
 
+    // NEU: Lade alle benötigten Benutzerkürzel im Voraus (Optimierung)
     const allUids = activeSchedule.flatMap(item => item.assignedTo || []);
     await getShortNamesForUids([...new Set(allUids)]); 
 
+    // Helper Funktion zum Rendern einer Liste
     const renderList = async (items, listElement, noTasksMsg) => {
         if (items.length > 0) {
             noTasksMsg.style.display = 'none';
+            
             for (const item of items) {
                 const shortNames = await getShortNamesForUids(item.assignedTo);
                 listElement.appendChild(createScheduleItemElement(item, shortNames));
@@ -214,9 +234,15 @@ async function renderSchedule() {
 
     await renderList(todayItems, elements.todayTasksList, elements.noTodayTasks);
     await renderList(tomorrowItems, elements.tomorrowTasksList, elements.noTomorrowTasks);
+
+    // Zukünftige Items sind bereits nach Datum sortiert (durch den Scheduler).
     await renderList([...futureItems, ...unscheduledItems], elements.futureTasksList, elements.noFutureTasks);
 }
 
+/**
+ * Rendert die erledigten Aufgaben (aus state.tasks).
+ * GEÄNDERT: async
+ */
 async function renderCompletedTasks() {
     elements.completedTasksList.innerHTML = '';
     elements.noCompletedTasks.style.display = 'block';
@@ -229,7 +255,7 @@ async function renderCompletedTasks() {
             const dateA = parseDateString(a.completionDate);
             const dateB = parseDateString(b.completionDate);
             if (dateA && dateB) return dateB.getTime() - dateA.getTime();
-            return (b.id > a.id) ? 1 : -1;
+            return (b.id > a.id) ? 1 : -1; // Fallback
         });
 
         const allUidsInList = completedTasks.flatMap(task => task.assignedTo || []);
@@ -241,6 +267,7 @@ async function renderCompletedTasks() {
         }
     }
 }
+
 
 /**
  * Erstellt das DOM Element für ein aktives Schedule Item.
@@ -315,7 +342,7 @@ function createScheduleItemElement(item, assignedShortNames = []) {
     }
 
     const manualScheduleFlag = item.isManuallyScheduled && !state.settings.autoPriority ? `<i class="fas fa-thumbtack text-blue-500 ml-2 text-sm" title="Manuell geplant (wird nicht automatisch verschoben)"></i>` : '';
-    
+
     // NEU: Uhrzeit für Fixe Termine
     let timeDisplay = '';
     if (item.type === 'Fixer Termin' && item.fixedTime) {
@@ -350,6 +377,9 @@ function createScheduleItemElement(item, assignedShortNames = []) {
     return itemElement;
 }
 
+/**
+ * Erstellt das DOM Element für eine erledigte Aufgabe (Definition).
+ */
 function createCompletedTaskElement(task, assignedShortNames = []) {
     const taskElement = document.createElement('div');
     taskElement.className = 'task-item completed cursor-default';
@@ -382,6 +412,7 @@ function createCompletedTaskElement(task, assignedShortNames = []) {
     return taskElement;
 }
 
+
 function updateAvailableTimeDisplays() {
     const today = normalizeDate();
     const tomorrow = normalizeDate();
@@ -394,7 +425,7 @@ function updateAvailableTimeDisplays() {
         if (!itemDate) return;
 
         const duration = getScheduleItemDuration(item);
-        if (itemDate.getTime() <= today.getTime()) {
+         if (itemDate.getTime() <= today.getTime()) {
             consumedToday += duration;
             return;
         }
@@ -431,6 +462,9 @@ export function renderSettingsModal(settingsToRender) {
     renderDailyTimeslots(settingsToRender);
 }
 
+/**
+ * Rendert die UI zur Verwaltung der Orte im Einstellungs-Modal.
+ */
 function renderLocationsManagement(locations) {
     const container = elements.locationsListContainer;
     if (!container) return;
