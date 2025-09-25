@@ -38,6 +38,23 @@ export function formatDateToYYYYMMDD(date) {
 }
 
 /**
+ * NEU: Formatiert ein Datum lokalisiert (z.B. "Do., 25. Sept.").
+ */
+export function formatDateLocalized(date) {
+    if (!date || !(date instanceof Date) || isNaN(date.getTime())) return '';
+    
+    // Nutzt die Intl API für die lokalisierte Formatierung
+    const options = { weekday: 'short', day: 'numeric', month: 'short' };
+    // Wir verwenden 'de-DE' für das deutsche Format.
+    try {
+        return date.toLocaleDateString('de-DE', options);
+    } catch (error) {
+        console.error("Error formatting date localized:", error);
+        return formatDateToYYYYMMDD(date); // Fallback
+    }
+}
+
+/**
  * Gets the weekday name (e.g., "Montag").
  */
 export function getDayOfWeek(date) {

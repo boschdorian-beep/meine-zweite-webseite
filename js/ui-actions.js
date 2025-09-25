@@ -2,10 +2,8 @@
 import { state } from './state.js';
 import { WEEKDAYS } from './config.js';
 import { toggleTaskCompleted, handleTaskDrop, updateTaskDetails, getOriginalTotalDuration, recalculateSchedule } from './scheduler.js';
-// NEU: Importiere clearAllCompletedTasks und deleteTaskDefinition direkt aus database.js
 import { clearAllCompletedTasks, deleteTaskDefinition, saveSettings, saveTaskDefinition } from './database.js';
 import { renderApp, renderSettingsModal } from './ui-render.js';
-// NEU: Importiere Hilfsfunktionen für Zeit und Parsing
 import { parseDateString, calculateDecimalHours } from './utils.js';
 import { searchUsers, getUsersByIds } from './collaboration.js';
  
@@ -21,50 +19,58 @@ let modalState = {
 // --- Task Interactions ---
 
 /**
- * NEU: Hängt Event-Listener an die Filterleiste.
+ * Hängt Event-Listener an die Filterleiste.
  */
 export function attachFilterInteractions() {
     const filterBar = document.getElementById('filter-bar');
     if (!filterBar) return;
 
     // Event-Delegation für die gesamte Leiste
-    filterBar.addEventListener('change', async (event) => {
-        const target = event.target;
-
-        // Orts-Filter (Radio-Buttons)
-        if (target.matches('.location-filter-radio')) {
-            // Wenn ein bereits ausgewählter Radio-Button erneut geklickt wird, soll er sich deaktivieren.
-            // Dies ist kein Standardverhalten, daher die manuelle Logik.
-            if (state.filters.prioritizedLocation === target.value) {
-                target.checked = false;
-                state.filters.prioritizedLocation = null;
-            } else {
-                state.filters.prioritizedLocation = target.value;
-            }
-        }
-
-        // Benutzer-Filter (Checkboxes)
-        if (target.matches('.user-filter-checkbox')) {
-            const selectedUids = Array.from(document.querySelectorAll('.user-filter-checkbox:checked')).map(cb => cb.value);
-            state.filters.prioritizedUserIds = selectedUids;
-        }
-
-        // Nach jeder Änderung neu berechnen und rendern
-        recalculateSchedule();
-        await renderApp();
-    });
+    // Wir verwenden 'change' für Checkboxen/Radios.
+    // Wichtig: Listener entfernen, um Doppelungen zu vermeiden, falls die Funktion mehrfach aufgerufen wird.
+    // Wir verwenden benannte Funktionen, um removeEventListener korrekt nutzen zu können.
+    filterBar.removeEventListener('change', handleFilterChange);
+    filterBar.addEventListener('change', handleFilterChange);
 
     // "Filter löschen"-Button
     const clearBtn = document.getElementById('clear-filters-btn');
-    clearBtn.addEventListener('click', async () => {
-        state.filters.prioritizedLocation = null;
-        state.filters.prioritizedUserIds = [];
-        
-        // Neu berechnen und rendern
-        recalculateSchedule();
-        await renderApp();
-    });
+    clearBtn.removeEventListener('click', handleClearFilters);
+    clearBtn.addEventListener('click', handleClearFilters);
 }
+
+// Benannte Funktion für den Filter-Change-Listener
+async function handleFilterChange(event) {
+    const target = event.target;
+
+    // GEÄNDERT: Orts-Filter (Checkboxes)
+    if (target.matches('.location-filter-checkbox')) {
+        const selectedLocations = Array.from(document.querySelectorAll('.location-filter-checkbox:checked')).map(cb => cb.value);
+        // Nutzt das Array prioritizedLocations (siehe state.js)
+        state.filters.prioritizedLocations = selectedLocations;
+    }
+
+    // Benutzer-Filter (Checkboxes)
+    if (target.matches('.user-filter-checkbox')) {
+        const selectedUids = Array.from(document.querySelectorAll('.user-filter-checkbox:checked')).map(cb => cb.value);
+        state.filters.prioritizedUserIds = selectedUids;
+    }
+
+    // Nach jeder Änderung neu berechnen und rendern
+    recalculateSchedule();
+    await renderApp();
+}
+
+// Benannte Funktion für den Clear-Filters-Listener
+async function handleClearFilters() {
+    // GEÄNDERT: prioritizedLocations zurücksetzen
+    state.filters.prioritizedLocations = [];
+    state.filters.prioritizedUserIds = [];
+    
+    // Neu berechnen und rendern
+    recalculateSchedule();
+    await renderApp();
+}
+
 
 export function attachTaskInteractions() {
     // Checkboxen
@@ -73,7 +79,7 @@ export function attachTaskInteractions() {
         checkbox.addEventListener('change', handleCheckboxChange);
     });
 
-    // Drag & Drop
+    // Drag & Drop (Unverändert)
     document.querySelectorAll('.task-item').forEach(taskElement => {
         taskElement.removeEventListener('dragstart', handleDragStart);
         taskElement.removeEventListener('dragend', handleDragEnd);
@@ -103,15 +109,14 @@ export function attachTaskInteractions() {
         content.addEventListener('click', handleTaskContentClick);
     });
 
-    // NEU: Klick auf Notiz-Icon (Toggle Notizen)
-    // Wir suchen nach dem Button, der das Icon enthält
+    // Klick auf Notiz-Icon (Toggle Notizen)
     document.querySelectorAll('.toggle-notes-btn').forEach(toggle => {
         toggle.removeEventListener('click', handleNotesToggle);
         toggle.addEventListener('click', handleNotesToggle);
     });
 }
 
-// NEU: Toggle für Notizenanzeige
+// Toggle für Notizenanzeige (Unverändert)
 function handleNotesToggle(event) {
     // Verhindere, dass der Klick das Edit-Modal öffnet
     event.stopPropagation(); 
@@ -137,7 +142,7 @@ async function handleCheckboxChange(event) {
     event.stopPropagation();
     const taskId = event.target.dataset.taskId;
     await toggleTaskCompleted(taskId, event.target.checked);
-    await renderApp(); // GEÄNDERT: async
+    await renderApp();
 }
 
 // --- Drag and Drop Handlers (Unverändert) ---
@@ -233,10 +238,11 @@ async function handleDrop(e) {
     }
 
     // Rufe die Scheduler-Logik auf
+    // handleTaskDrop ist in scheduler.js definiert
     const success = await handleTaskDrop(draggedTaskId, dropTargetTaskId, insertBefore, newDate);
 
     if (success) {
-        await renderApp(); // GEÄNDERT: async
+        await renderApp();
     }
     handleDragEnd();
 }
@@ -270,151 +276,259 @@ function handleTaskContentClick(event) {
     openEditModal(taskId);
 }
 
-// GEÄNDERT: Lädt Zuweisungen und befüllt neue Felder (inkl. Zeitumrechnung)
+// Hilfsfunktion zur Umrechnung von Dezimalstunden in H und M
+const setDurationInputs = (durationDecimal, inputH, inputM) => {
+    // Sicherstellen, dass durationDecimal eine Zahl ist
+    const duration = parseFloat(durationDecimal) || 0;
+    const totalMinutes = Math.round(duration * 60);
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    document.getElementById(inputH).value = hours;
+    document.getElementById(inputM).value = minutes;
+};
+
+// Hilfsfunktion zum Umschalten der Eingabefelder basierend auf dem Typ
+function toggleEditInputs(taskType) {
+    document.querySelectorAll('.edit-inputs').forEach(el => el.classList.add('hidden'));
+
+    if (taskType === 'Vorteil & Dauer') {
+        document.getElementById('editVorteilDauerInputs').classList.remove('hidden');
+    } else if (taskType === 'Deadline') {
+        document.getElementById('editDeadlineInputs').classList.remove('hidden');
+    } else if (taskType === 'Fixer Termin') {
+        document.getElementById('editFixerTerminInputs').classList.remove('hidden');
+    }
+}
+
+// Unterstützt Typänderung, Uhrzeit und nutzt generalisierte Kollaborations-UI
 export async function openEditModal(taskId) {
     const task = state.tasks.find(t => t.id === taskId);
     if (!task) return;
 
     // 1. Modal-Zustand initialisieren
     modalState.editModal.ownerId = task.ownerId;
-    modalState.editModal.assignedUsers = []; // Wird gleich geladen
+    modalState.editModal.assignedUsers = []; // Wird später geladen
 
     // 2. Basisdaten befüllen
     document.getElementById('edit-task-id').value = task.id;
-    document.getElementById('edit-task-type').value = task.type;
+    // Setze den Wert des <select> elements
+    const typeSelect = document.getElementById('edit-task-type');
+    typeSelect.value = task.type;
+    
     document.getElementById('edit-description').value = task.description;
-    // NEU: Notizen und Ort
     document.getElementById('edit-notes').value = task.notes || '';
-    // Wähle den Ort im Dropdown aus
     document.getElementById('edit-location-select').value = task.location || '';
 
-    document.querySelectorAll('.edit-inputs').forEach(el => el.classList.add('hidden'));
+    // Typ-spezifische Felder befüllen. Wir befüllen alle, falls der Nutzer den Typ ändert.
+    const duration = getOriginalTotalDuration(task);
+    
+    // Vorteil & Dauer
+    setDurationInputs(duration, 'edit-estimated-duration-h', 'edit-estimated-duration-m');
+    document.getElementById('edit-financial-benefit').value = task.financialBenefit || '';
+    
+    // Deadline
+    document.getElementById('edit-deadline-date').value = task.deadlineDate || '';
+    setDurationInputs(duration, 'edit-deadline-duration-h', 'edit-deadline-duration-m');
+    
+    // Fixer Termin
+    document.getElementById('edit-fixed-date').value = task.fixedDate || '';
+    // Befülle Uhrzeit
+    document.getElementById('edit-fixed-time').value = task.fixedTime || '';
+    setDurationInputs(duration, 'edit-fixed-duration-h', 'edit-fixed-duration-m');
 
-    // Hilfsfunktion zur Umrechnung von Dezimalstunden in H und M
-    const setDurationInputs = (durationDecimal, inputH, inputM) => {
-        const totalMinutes = Math.round(durationDecimal * 60);
-        const hours = Math.floor(totalMinutes / 60);
-        const minutes = totalMinutes % 60;
-        document.getElementById(inputH).value = hours;
-        document.getElementById(inputM).value = minutes;
+    // Zeige die richtigen Eingabefelder
+    toggleEditInputs(task.type);
+
+    // Event Listener für Typänderung
+    // onchange ersetzt bestehende Listener.
+    typeSelect.onchange = (event) => {
+        toggleEditInputs(event.target.value);
     };
 
-    // Typ-spezifische Felder befüllen
-    if (task.type === 'Vorteil & Dauer') {
-        document.getElementById('editVorteilDauerInputs').classList.remove('hidden');
-        setDurationInputs(getOriginalTotalDuration(task), 'edit-estimated-duration-h', 'edit-estimated-duration-m');
-        document.getElementById('edit-financial-benefit').value = task.financialBenefit || '';
-    } else if (task.type === 'Deadline') {
-        document.getElementById('editDeadlineInputs').classList.remove('hidden');
-        document.getElementById('edit-deadline-date').value = task.deadlineDate || '';
-        setDurationInputs(getOriginalTotalDuration(task), 'edit-deadline-duration-h', 'edit-deadline-duration-m');
-    } else if (task.type === 'Fixer Termin') {
-        document.getElementById('editFixerTerminInputs').classList.remove('hidden');
-        document.getElementById('edit-fixed-date').value = task.fixedDate || '';
-        setDurationInputs(getOriginalTotalDuration(task), 'edit-fixed-duration-h', 'edit-fixed-duration-m');
-    }
-
-    // 3. Zeige das Modal und initialisiere die Kollaborations-UI
+    // 3. Zeige das Modal
     const modal = document.getElementById('editTaskModal');
     modal.classList.remove('hidden');
     modal.classList.add('flex');
     
-    setupCollaborationUIEvents();
+    // Initialisiere die Kollaborations-UI
+    setupCollaborationUI('edit');
+    
     // Initial leere Liste rendern, während Profile laden
-    renderAssignedUsers(); 
+    renderAssignedUsers('edit'); 
 
     // 4. Lade zugewiesene Benutzerprofile (async)
     const assignedUids = task.assignedTo || [];
     const userProfiles = await getUsersByIds(assignedUids);
 
     // Konvertiere Map in Array für den Modal-Zustand
-    // Verwende einen Fallback, falls ein Profil nicht geladen werden konnte (sollte selten passieren)
     modalState.editModal.assignedUsers = assignedUids.map(uid => 
         userProfiles[uid] || { uid: uid, email: `Lade... (${uid.substring(0, 6)})`, displayName: 'Unbekannt', shortName: '??' }
     );
     
     // Rendere die Liste der Zuweisungen erneut mit geladenen Daten
-    renderAssignedUsers();
+    renderAssignedUsers('edit');
 }
 
-// NEU: Initialisiert die UI Events für das Edit Modal (Suche, Hinzufügen/Entfernen)
-function setupCollaborationUIEvents() {
-    const searchInput = document.getElementById('user-search-input');
-    const searchResults = document.getElementById('user-search-results');
-    const assignedList = document.getElementById('assigned-users-list');
+
+// --- Collaboration UI (Generalisiert für Create und Edit) ---
+
+/**
+ * Initialisiert die Kollaborations-UI für das "Neue Aufgabe"-Formular (Kontext 'create').
+ */
+export function initializeCollaborationUI() {
+    setupCollaborationUI('create');
+    // Rendere die initiale Liste (normalerweise nur der aktuelle Benutzer, falls geladen)
+    renderAssignedUsers('create');
+}
+
+/**
+ * Holt die relevanten UI-Elemente und den Zustand basierend auf dem Kontext.
+ */
+function getCollaborationContext(context) {
+    if (context === 'edit') {
+        return {
+            assignmentState: modalState.editModal.assignedUsers,
+            // Wichtig: ownerId aus dem modalState holen, da er sich ändern kann
+            ownerId: modalState.editModal.ownerId, 
+            searchInput: document.getElementById('user-search-input-edit'),
+            searchResults: document.getElementById('user-search-results-edit'),
+            assignedList: document.getElementById('assigned-users-list-edit')
+        };
+    } else if (context === 'create') {
+        return {
+            assignmentState: state.newTaskAssignment,
+            ownerId: state.user ? state.user.uid : null, // Ersteller ist der Besitzer
+            searchInput: document.getElementById('user-search-input-create'),
+            searchResults: document.getElementById('user-search-results-create'),
+            assignedList: document.getElementById('assigned-users-list-create')
+        };
+    }
+    return null;
+}
+
+/**
+ * Generalisierte Funktion zum Einrichten der UI Events (Suche, Hinzufügen/Entfernen).
+ */
+function setupCollaborationUI(context) {
+    const ctx = getCollaborationContext(context);
+    if (!ctx || !ctx.searchInput) return;
 
     // Sucheingabe (Debounced)
     let timeout = null;
-    searchInput.value = ''; // Input leeren
-    searchResults.classList.add('hidden'); // Ergebnisse verstecken
+    if (context === 'edit') {
+        ctx.searchInput.value = ''; // Input leeren nur beim Öffnen des Edit-Modals
+    }
+    ctx.searchResults.classList.add('hidden'); // Ergebnisse verstecken
 
-    // Verwende eine benannte Funktion für den Listener
+    // Listener für Sucheingabe
     const handleInput = () => {
         clearTimeout(timeout);
         timeout = setTimeout(async () => {
-            const results = await searchUsers(searchInput.value);
-            renderSearchResults(results);
-        }, 300); // 300ms Verzögerung
+            const results = await searchUsers(ctx.searchInput.value);
+            renderSearchResults(context, results);
+        }, 300);
     };
     
-    // Setze den Listener (oninput reagiert auf jede Eingabe)
-    searchInput.oninput = handleInput;
-
+    // Setze den Listener (oninput ersetzt bestehende Listener)
+    ctx.searchInput.oninput = handleInput;
 
     // Klick auf Suchergebnis (Hinzufügen)
-    searchResults.onclick = (event) => {
+    // onclick ersetzt bestehende Listener
+    ctx.searchResults.onclick = (event) => {
         const userElement = event.target.closest('.user-search-item');
         if (userElement) {
-            // Lese das Profil aus dem data-Attribut (als JSON gespeichert)
             const userProfile = JSON.parse(userElement.dataset.profile);
-            addUserToAssignment(userProfile);
+            addUserToAssignment(context, userProfile);
             // UI aufräumen
-            searchInput.value = '';
-            searchResults.classList.add('hidden');
+            ctx.searchInput.value = '';
+            ctx.searchResults.classList.add('hidden');
         }
     };
 
     // Klick auf Zuweisungsliste (Entfernen)
-    assignedList.onclick = (event) => {
-        if (event.target.classList.contains('remove-assignment-btn')) {
-            const uid = event.target.dataset.uid;
-            removeUserFromAssignment(uid);
+    ctx.assignedList.onclick = (event) => {
+        // Nutze closest, falls auf das 'x' Icon statt den Button geklickt wird
+        const removeBtn = event.target.closest('.remove-assignment-btn');
+        if (removeBtn) {
+            const uid = removeBtn.dataset.uid;
+            removeUserFromAssignment(context, uid);
         }
     };
 }
 
-// NEU: Fügt Benutzer zum temporären Modal-Zustand hinzu
-function addUserToAssignment(userProfile) {
-    if (!modalState.editModal.assignedUsers.find(u => u.uid === userProfile.uid)) {
-        modalState.editModal.assignedUsers.push(userProfile);
-        renderAssignedUsers();
+// Fügt Benutzer zum Zustand des jeweiligen Kontexts hinzu
+function addUserToAssignment(context, userProfile) {
+    const ctx = getCollaborationContext(context);
+    
+    // Prüfe, ob bereits vorhanden
+    if (!ctx.assignmentState.find(u => u.uid === userProfile.uid)) {
+        ctx.assignmentState.push(userProfile);
+        renderAssignedUsers(context);
     }
 }
 
-// NEU: Entfernt Benutzer aus dem temporären Modal-Zustand
-function removeUserFromAssignment(uid) {
-    // Regel 1: Der Besitzer kann nicht entfernt werden
-    if (uid === modalState.editModal.ownerId) {
-        alert("Der Besitzer der Aufgabe kann nicht entfernt werden.");
-        return;
+// Entfernt Benutzer aus dem Zustand. Behandelt Besitzerwechsel.
+function removeUserFromAssignment(context, uid) {
+    const ctx = getCollaborationContext(context);
+    // Wichtig: ownerId aus dem aktuellen Kontext holen, da er sich im Edit-Modus ändern kann.
+    const ownerId = ctx.ownerId; 
+
+    // Regel 1 & 2: Besitzerwechsel / Selbstentfernung
+    if (uid === ownerId) {
+        // Besitzer versucht sich selbst zu entfernen
+
+        // Fall A: Es gibt andere Zugewiesene
+        if (ctx.assignmentState.length > 1) {
+            if (context === 'edit') {
+                // Im Edit-Modus: Fordere zur Bestätigung des neuen Besitzers auf
+                const potentialOwners = ctx.assignmentState.filter(u => u.uid !== ownerId);
+                // Wähle den ersten anderen Benutzer als neuen Besitzer (deterministisch)
+                const newOwner = potentialOwners[0];
+                
+                if (confirm(`Du bist der Besitzer dieser Aufgabe. Wenn du dich entfernst, wird die Besitzerschaft an ${newOwner.displayName} übertragen. Fortfahren?`)) {
+                    // WICHTIG: Aktualisiere den OwnerId im Modal State
+                    modalState.editModal.ownerId = newOwner.uid;
+                    // Entferne den alten Besitzer
+                    const index = ctx.assignmentState.findIndex(u => u.uid === uid);
+                    if (index > -1) ctx.assignmentState.splice(index, 1);
+                } else {
+                    return; // Abbrechen
+                }
+
+            } else {
+                // Im Create-Modus: Man kann sich selbst nicht entfernen (der Button wird ausgeblendet, aber zur Sicherheit hier prüfen)
+                // Der Ersteller muss zugewiesen sein.
+                return; 
+            }
+
+        } else {
+            // Fall B: Besitzer ist alleine zugewiesen
+            alert("Mindestens ein Teammitglied muss zugewiesen bleiben.");
+            return;
+        }
+    } else {
+        // Regel 3: Nur der Besitzer darf andere entfernen (außer man entfernt sich selbst)
+        // state.user muss existieren, um die Prüfung durchzuführen
+        if (state.user && state.user.uid !== ownerId && state.user.uid !== uid) {
+            alert("Nur der Besitzer der Aufgabe kann andere Teammitglieder entfernen.");
+            return;
+        }
+
+        // Standard-Entfernung
+        const index = ctx.assignmentState.findIndex(u => u.uid === uid);
+        if (index > -1) ctx.assignmentState.splice(index, 1);
     }
 
-    // Regel 2: Nur der Besitzer darf andere entfernen (außer man entfernt sich selbst)
-    if (state.user.uid !== modalState.editModal.ownerId && state.user.uid !== uid) {
-        alert("Nur der Besitzer der Aufgabe kann andere Teammitglieder entfernen.");
-        return;
-    }
-
-    modalState.editModal.assignedUsers = modalState.editModal.assignedUsers.filter(u => u.uid !== uid);
-    renderAssignedUsers();
+    renderAssignedUsers(context);
 }
 
-// NEU: Rendert die Suchergebnisse
-function renderSearchResults(results) {
-    const searchResults = document.getElementById('user-search-results');
+// Rendert die Suchergebnisse im jeweiligen Kontext
+function renderSearchResults(context, results) {
+    const ctx = getCollaborationContext(context);
+    const searchResults = ctx.searchResults;
     searchResults.innerHTML = '';
     
-    if (results.length === 0 && document.getElementById('user-search-input').value.length > 0) {
+    if (results.length === 0 && ctx.searchInput.value.length > 0) {
         searchResults.innerHTML = '<div class="p-3 text-gray-500">Keine Benutzer gefunden.</div>';
         searchResults.classList.remove('hidden');
         return;
@@ -423,7 +537,7 @@ function renderSearchResults(results) {
     let count = 0;
     results.forEach(user => {
         // Nur anzeigen, wenn noch nicht zugewiesen
-        if (!modalState.editModal.assignedUsers.find(u => u.uid === user.uid)) {
+        if (!ctx.assignmentState.find(u => u.uid === user.uid)) {
             const item = document.createElement('div');
             item.className = 'p-3 hover:bg-gray-100 cursor-pointer user-search-item';
             // Speichere das gesamte Profil als JSON im data-Attribut
@@ -442,15 +556,21 @@ function renderSearchResults(results) {
     }
 }
 
-// NEU: Rendert die Liste der zugewiesenen Benutzer
-function renderAssignedUsers() {
-    const assignedList = document.getElementById('assigned-users-list');
-    assignedList.innerHTML = '';
+
+// Rendert die Liste der zugewiesenen Benutzer im jeweiligen Kontext
+function renderAssignedUsers(context) {
+    // Hole den aktualisierten Kontext, da sich ownerId geändert haben könnte
+    const ctx = getCollaborationContext(context);
+    if (!ctx || !ctx.assignedList) return;
+
+    ctx.assignedList.innerHTML = '';
+    // Wichtig: ownerId aus dem aktuellen Kontext holen.
+    const ownerId = ctx.ownerId;
 
     // Sortiere: Besitzer zuerst, dann alphabetisch
-    const sortedUsers = [...modalState.editModal.assignedUsers].sort((a, b) => {
-        if (a.uid === modalState.editModal.ownerId) return -1;
-        if (b.uid === modalState.editModal.ownerId) return 1;
+    const sortedUsers = [...ctx.assignmentState].sort((a, b) => {
+        if (a.uid === ownerId) return -1;
+        if (b.uid === ownerId) return 1;
         return (a.displayName || a.email).localeCompare(b.displayName || b.email);
     });
 
@@ -458,18 +578,27 @@ function renderAssignedUsers() {
         const item = document.createElement('div');
         item.className = 'flex justify-between items-center bg-white p-2 rounded-lg shadow-sm';
         
-        const isOwner = user.uid === modalState.editModal.ownerId;
-        const roleText = isOwner ? '(Besitzer)' : '';
+        const isOwner = user.uid === ownerId;
+        let roleText = isOwner ? '(Besitzer)' : '';
+        if (context === 'create' && isOwner) roleText = '(Du)';
 
-        // Prüfe, ob der aktuelle Benutzer entfernen darf (Besitzer oder sich selbst)
-        const canRemove = !isOwner && (state.user.uid === modalState.editModal.ownerId || state.user.uid === user.uid);
+        // Prüfe, ob der aktuelle Benutzer entfernen darf
+        let canRemove = false;
+        if (context === 'create') {
+             canRemove = !isOwner; // Man kann nur andere entfernen, nicht sich selbst
+        } else {
+            // Edit Modus Logik: Besitzer darf alle entfernen. Andere dürfen nur sich selbst entfernen.
+            // Dies erlaubt auch, dass man sich selbst entfernt, wenn man Besitzer ist (wird in removeUserFromAssignment behandelt).
+            canRemove = (state.user && state.user.uid === ownerId) || (state.user && state.user.uid === user.uid);
+        }
 
         // Zeige Namen und E-Mail an
+        // focus:outline-none für bessere Button UX
         item.innerHTML = `
             <span>${user.displayName || user.email} <span class="text-sm text-gray-500">${roleText}</span></span>
-            ${canRemove ? `<button data-uid="${user.uid}" class="remove-assignment-btn text-red-500 hover:text-red-700 text-xl leading-none" title="Entfernen">&times;</button>` : ''}
+            ${canRemove ? `<button data-uid="${user.uid}" class="remove-assignment-btn text-red-500 hover:text-red-700 text-xl leading-none focus:outline-none" title="Entfernen">&times;</button>` : ''}
         `;
-        assignedList.appendChild(item);
+        ctx.assignedList.appendChild(item);
     });
 }
 
@@ -478,15 +607,20 @@ export function closeEditModal() {
     const modal = document.getElementById('editTaskModal');
     modal.classList.add('hidden');
     modal.classList.remove('flex');
-    // NEU: Modal-Zustand zurücksetzen
+    // Modal-Zustand zurücksetzen
     modalState.editModal = { assignedUsers: [], ownerId: null };
-    document.getElementById('user-search-input').value = '';
-    document.getElementById('user-search-results').classList.add('hidden');
+    // UI Elemente leeren (nutzt generalisierte Funktion)
+    const ctx = getCollaborationContext('edit');
+    if (ctx) {
+        if (ctx.searchInput) ctx.searchInput.value = '';
+        if (ctx.searchResults) ctx.searchResults.classList.add('hidden');
+    }
 }
 
-// GEÄNDERT: Liest neue Felder und rechnet Zeit um
+// Liest neue Felder (Typ, Besitzer, Uhrzeit) und rechnet Zeit um
 export async function handleSaveEditedTask() {
     const taskId = document.getElementById('edit-task-id').value;
+    // Lese den Typ aus dem <select> Element
     const type = document.getElementById('edit-task-type').value;
     const description = document.getElementById('edit-description').value.trim();
 
@@ -495,20 +629,25 @@ export async function handleSaveEditedTask() {
         return;
     }
 
-    // NEU: Lese Zuweisungen, Notizen und Ort
+    // Lese Zuweisungen, Notizen und Ort
     const assignedUids = modalState.editModal.assignedUsers.map(u => u.uid);
     const notes = document.getElementById('edit-notes').value.trim();
     const location = document.getElementById('edit-location-select').value;
 
+    // Lese den (potenziell geänderten) Besitzer
+    const ownerId = modalState.editModal.ownerId;
+
     const updatedDetails = {
         description: description,
+        type: type, // Übergebe den Typ
         assignedTo: assignedUids,
-        notes: notes || null, // Speichere null wenn leer
-        location: location || null // Speichere null wenn leer
+        ownerId: ownerId, // Übergebe den Besitzer
+        notes: notes || null,
+        location: location || null
     };
 
     try {
-        // GEÄNDERT: Lese Stunden/Minuten und rechne um
+        // Lese Stunden/Minuten und rechne um (für den aktuellen Typ)
         if (type === 'Vorteil & Dauer') {
             const hours = document.getElementById('edit-estimated-duration-h').value;
             const minutes = document.getElementById('edit-estimated-duration-m').value;
@@ -529,6 +668,10 @@ export async function handleSaveEditedTask() {
             if (!fixedDate) throw new Error("Bitte gib ein Datum für den fixen Termin ein!");
             updatedDetails.fixedDate = fixedDate;
 
+            // Lese Uhrzeit
+            const fixedTime = document.getElementById('edit-fixed-time').value;
+            updatedDetails.fixedTime = fixedTime || null;
+
             const hours = document.getElementById('edit-fixed-duration-h').value;
             const minutes = document.getElementById('edit-fixed-duration-m').value;
             updatedDetails.fixedDuration = calculateDecimalHours(hours, minutes);
@@ -538,14 +681,13 @@ export async function handleSaveEditedTask() {
         await updateTaskDetails(taskId, updatedDetails);
 
         closeEditModal();
-        await renderApp(); // GEÄNDERT: async
+        await renderApp();
 
     } catch (error) {
         alert(error.message);
     }
 }
 
-// GEÄNDERT: Logik direkt hier, nutzt deleteTaskDefinition
 export async function handleDeleteTask() {
     const taskId = document.getElementById('edit-task-id').value;
     const task = state.tasks.find(t => t.id === taskId);
@@ -560,11 +702,10 @@ export async function handleDeleteTask() {
         recalculateSchedule();
 
         closeEditModal();
-        await renderApp(); // GEÄNDERT: async
+        await renderApp();
     }
 }
 
-// NEU: Handler für "Alle erledigten löschen" (verschoben von main.js)
 export async function handleClearCompleted() {
     if (confirm("Möchtest du wirklich alle erledigten Aufgaben endgültig löschen?")) {
         const completedTasks = state.tasks.filter(task => task.completed);
@@ -583,7 +724,8 @@ export async function handleClearCompleted() {
 }
 
 
-// (Settings Modal Actions bleiben unverändert)
+// --- Settings Modal Actions ---
+
 export function openModal() {
     // KORREKTUR: Wir sammeln ALLE Orte (aus Einstellungen und "verwaiste" aus Tasks)
     const allTaskLocations = [...new Set(state.tasks.map(t => t.location).filter(Boolean))];
@@ -595,9 +737,6 @@ export function openModal() {
     modalState.tempSettings.locations = combinedLocations;
 
     renderSettingsModal(modalState.tempSettings); // Rendere mit der vollständigen Liste
-    // NEU: Dropdowns mit den aktuellen Orten befüllen
-    // (wird indirekt durch renderApp() gemacht, aber hier explizit für Klarheit)
-    // populateLocationDropdowns();
 
     const modal = document.getElementById('settingsModal');
     modal.classList.remove('hidden');
@@ -615,7 +754,7 @@ export function closeModal() {
 export function updateAndGetSettingsFromModal() {
     modalState.tempSettings.calcPriority = document.getElementById('calcPriorityCheckbox').checked;
 
-    // NEU: Lese die Orte aus dem temporären Zustand. Die Bearbeitung des tempSettings-Objekts
+    // Lese die Orte aus dem temporären Zustand. Die Bearbeitung des tempSettings-Objekts
     // passiert direkt in den Event-Listenern (handleLocationAction).
     // Hier muss nichts extra gelesen werden, da das Objekt bereits aktuell ist.
 
@@ -653,7 +792,7 @@ function attachModalEventListeners() {
     container.removeEventListener('click', handleTimeslotAction);
     container.addEventListener('click', handleTimeslotAction);
 
-    // NEU: Listener für die Ortsverwaltung
+    // Listener für die Ortsverwaltung
     settingsModal.removeEventListener('click', handleLocationClick);
     settingsModal.addEventListener('click', handleLocationClick);
     settingsModal.removeEventListener('change', handleLocationInputChange); // 'change' feuert bei Blur oder Enter
@@ -661,7 +800,7 @@ function attachModalEventListeners() {
 }
 
 /**
- * KORRIGIERT: Verarbeitet Klicks in der Ortsverwaltung (Hinzufügen/Löschen).
+ * Verarbeitet Klicks in der Ortsverwaltung (Hinzufügen/Löschen).
  * Arbeitet jetzt direkt mit dem globalen State und speichert automatisch.
  */
 async function handleLocationClick(event) {
@@ -679,6 +818,7 @@ async function handleLocationClick(event) {
             
             // Automatisch speichern und UI aktualisieren
             await saveSettings(state.settings);
+            recalculateSchedule();
             await renderApp();
             openModal(); // Modal neu öffnen, um den Zustand zu erhalten
         }
@@ -702,6 +842,7 @@ async function handleLocationClick(event) {
 
             // 3. Alle Änderungen speichern
             await Promise.all([saveSettings(state.settings), ...tasksToUpdate]);
+            recalculateSchedule(); // Wichtig, falls Filter aktiv waren
             await renderApp();
             openModal();
         }
@@ -709,7 +850,7 @@ async function handleLocationClick(event) {
 }
 
 /**
- * NEU: Verarbeitet das Umbenennen eines Ortes.
+ * Verarbeitet das Umbenennen eines Ortes.
  */
 async function handleLocationInputChange(event) {
     const input = event.target;
@@ -718,16 +859,29 @@ async function handleLocationInputChange(event) {
     const originalLocation = input.dataset.originalLocation;
     const newLocation = input.value.trim();
 
-    if (newLocation && newLocation !== originalLocation) {
+    if (newLocation === originalLocation) return;
+
+    if (newLocation) {
+        // Prüfe, ob der neue Name bereits existiert
+        if (state.settings.locations.includes(newLocation)) {
+            alert(`Der Ort "${newLocation}" existiert bereits. Bitte wähle einen anderen Namen.`);
+            input.value = originalLocation;
+            return;
+        }
+        
         if (confirm(`Möchtest du den Ort "${originalLocation}" in "${newLocation}" umbenennen? Dies wird für alle Aufgaben übernommen.`)) {
             // Logik zum Umbenennen und Speichern
             await renameLocationInStateAndDb(originalLocation, newLocation);
+            recalculateSchedule();
             await renderApp();
             openModal();
         } else {
             // Zurücksetzen, wenn der Benutzer abbricht
             input.value = originalLocation;
         }
+    } else {
+         // Wenn das Feld leer ist, zurücksetzen (Löschen erfolgt über den Button)
+        input.value = originalLocation;
     }
 }
  
@@ -770,7 +924,7 @@ function handleTimeslotAction(event) {
 }
 
 /**
- * NEU: Hilfsfunktion, die die gesamte Logik zum Umbenennen eines Ortes kapselt.
+ * Hilfsfunktion, die die gesamte Logik zum Umbenennen eines Ortes kapselt.
  */
 async function renameLocationInStateAndDb(oldName, newName) {
     // 1. Update der zentralen Ortsliste in den Einstellungen
@@ -778,9 +932,10 @@ async function renameLocationInStateAndDb(oldName, newName) {
     if (locationIndex > -1) {
         state.settings.locations[locationIndex] = newName;
     } else {
-        // Wenn der alte Ort ein "verwaister" Ort war, füge den neuen hinzu
+        // Wenn der alte Ort ein "verwaister" Ort war (nur in Tasks, nicht in Settings), füge den neuen hinzu
         state.settings.locations.push(newName);
     }
+    // Entferne Duplikate (falls newName bereits existierte, was aber durch UI verhindert wird) und sortiere
     state.settings.locations = [...new Set(state.settings.locations)].sort();
 
     // 2. Alle Tasks durchgehen und den Ort aktualisieren
@@ -797,11 +952,12 @@ async function renameLocationInStateAndDb(oldName, newName) {
 }
 
 export function setActiveTaskType(button) {
+    // Styling der Buttons (angepasst an das neue Design mit Primärfarbe)
     document.querySelectorAll('.task-type-btn').forEach(btn => {
-        btn.classList.remove('bg-green-500', 'text-white');
+        btn.classList.remove('bg-primary', 'text-white');
         btn.classList.add('text-gray-700', 'hover:bg-gray-300');
     });
-    button.classList.add('bg-green-500', 'text-white');
+    button.classList.add('bg-primary', 'text-white');
     button.classList.remove('text-gray-700', 'hover:bg-gray-300');
 
     state.activeTaskType = button.dataset.type;
@@ -816,11 +972,25 @@ export function setActiveTaskType(button) {
     }
 }
 
-// GEÄNDERT: Setzt neue Felder zurück
+// Setzt neue Felder zurück, inkl. Zuweisungen und Uhrzeit
 export function clearInputs() {
     document.getElementById('newTaskInput').value = '';
     document.getElementById('newNotesInput').value = ''; 
     document.getElementById('newLocationSelect').value = ''; // Dropdown zurücksetzen
+
+    // NEU: Zuweisungen zurücksetzen (Standardmäßig nur der aktuelle Benutzer)
+    state.newTaskAssignment.length = 0; // Leert das Array
+    if (state.userProfile) {
+        state.newTaskAssignment.push(state.userProfile);
+    }
+    // Rendere die Zuweisungsliste neu
+    renderAssignedUsers('create');
+    // Suchfeld leeren
+    const ctx = getCollaborationContext('create');
+    if (ctx && ctx.searchInput) {
+        ctx.searchInput.value = '';
+        if (ctx.searchResults) ctx.searchResults.classList.add('hidden');
+    }
 
     // Setze Stunden auf 1, Minuten auf 0 (Standard)
     document.getElementById('estimated-duration-h').value = '1';
@@ -832,6 +1002,7 @@ export function clearInputs() {
     document.getElementById('deadline-duration-m').value = '0';
 
     document.getElementById('fixed-date').value = '';
+    document.getElementById('fixed-time').value = ''; // NEU: Reset Uhrzeit
     document.getElementById('fixed-duration-h').value = '1';
     document.getElementById('fixed-duration-m').value = '0';
     
