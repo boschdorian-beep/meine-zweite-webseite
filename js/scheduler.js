@@ -70,7 +70,7 @@ function getConsumedHoursForDay(date, currentSchedule) {
     }, 0);
 }
 
-// GEÄNDERT: Sortierlogik berücksichtigt jetzt Uhrzeiten bei Fixen Terminen.
+// GEÄNDERT: Sortierlogik berücksichtigt jetzt Uhrzeiten bei Fixen Terminen und Deadlines.
 export function sortTasksByPriority(taskA, taskB) {
     const getBenefitPerHour = (task) => {
         const benefit = parseFloat(task.financialBenefit) || 0;
@@ -86,17 +86,27 @@ export function sortTasksByPriority(taskA, taskB) {
     if (taskA.type === 'Deadline' && taskB.type !== 'Deadline') return -1;
     if (taskB.type === 'Deadline' && taskA.type !== 'Deadline') return 1;
 
-     // Regel 3: Bei gleichen Typen (Fix/Deadline) nach Datum sortieren
+     // Regel 3: Bei gleichen Typen (Fix/Deadline) nach Datum und Zeit sortieren
      if (taskA.type === taskB.type && (taskA.type === 'Fixer Termin' || taskA.type === 'Deadline')) {
          // Nutze das temporär berechnete Plandatum für die Sortierung
          if (taskA.tempPlannedDate && taskB.tempPlannedDate) {
             const dateA = parseDateString(taskA.tempPlannedDate);
             const dateB = parseDateString(taskB.tempPlannedDate);
             if (dateA && dateB) {
-                // NEU: Wenn Datum gleich ist und Fixer Termin, sortiere nach Uhrzeit
-                if (dateA.getTime() === dateB.getTime() && taskA.type === 'Fixer Termin') {
-                    const timeA = taskA.fixedTime || "00:00";
-                    const timeB = taskB.fixedTime || "00:00";
+                // NEU: Wenn Datum gleich ist, sortiere nach Uhrzeit (Fixer Termin oder Deadline)
+                if (dateA.getTime() === dateB.getTime()) {
+                    let timeA = "00:00";
+                    let timeB = "00:00";
+
+                    if (taskA.type === 'Fixer Termin') {
+                        timeA = taskA.fixedTime || "00:00";
+                        timeB = taskB.fixedTime || "00:00";
+                    } else if (taskA.type === 'Deadline') {
+                        // Bei Deadlines nutzen wir die Deadline-Zeit, nicht die Plan-Zeit (die wir nicht kennen)
+                        // Wir nutzen 23:59 als Fallback, wenn keine Zeit angegeben ist, damit Aufgaben ohne Zeit später sortiert werden.
+                        timeA = taskA.deadlineTime || "23:59";
+                        timeB = taskB.deadlineTime || "23:59";
+                    }
                     return timeA.localeCompare(timeB);
                 }
                 return dateA.getTime() - dateB.getTime();
@@ -122,6 +132,7 @@ export function sortTasksByPriority(taskA, taskB) {
  * Plant flexible Aufgaben und erstellt Schedule Items.
  */
 function scheduleFlexibleTask(task, currentSchedule) {
+    // ... (Logik unverändert, da korrekt)
     const totalRequiredDuration = getOriginalTotalDuration(task);
 
     // Erstelle ein Basis-Schedule-Item mit allen relevanten Daten
@@ -209,10 +220,11 @@ function scheduleFlexibleTask(task, currentSchedule) {
 
 /**
  * Berechnet das Zieldatum für fixe Aufgaben (Deadlines, Fixe Termine, Manuell Geplant).
- * (Logik unverändert)
+ * GEÄNDERT: Berücksichtigt deadlineTime und fixedTime, um Überfälligkeit genauer zu bestimmen.
  */
 function calculateFixedTaskDates(tasks) {
     const today = normalizeDate();
+    const now = new Date(); // Aktuelle Zeit für genaue Prüfung
 
     tasks.forEach(task => {
         const duration = getOriginalTotalDuration(task);
@@ -237,7 +249,21 @@ function calculateFixedTaskDates(tasks) {
                  if (fixedDate.getTime() < today.getTime()) {
                      task.tempPlannedDate = formatDateToYYYYMMDD(today);
                  } else {
-                    task.tempPlannedDate = task.fixedDate;
+                    // NEU: Prüfe, ob der Termin heute ist und die Zeit bereits vorbei ist
+                    if (fixedDate.getTime() === today.getTime() && task.fixedTime) {
+                        const [hour, minute] = task.fixedTime.split(':').map(Number);
+                        const fixedDateTime = new Date(today);
+                        fixedDateTime.setHours(hour, minute, 0, 0);
+                        
+                        if (fixedDateTime.getTime() < now.getTime()) {
+                            // Terminzeit ist vorbei, bleibt aber für Heute geplant (Überfällig)
+                            task.tempPlannedDate = formatDateToYYYYMMDD(today);
+                        } else {
+                            task.tempPlannedDate = task.fixedDate;
+                        }
+                    } else {
+                        task.tempPlannedDate = task.fixedDate;
+                    }
                  }
             }
             return;
@@ -245,18 +271,33 @@ function calculateFixedTaskDates(tasks) {
 
         // Fall 3: Deadline (Versuche Puffer einzubauen)
         if (task.type === 'Deadline' && task.deadlineDate) {
-            const originalDeadline = parseDateString(task.deadlineDate);
-            if (originalDeadline) {
-                // Berechne das späteste Startdatum (Deadline minus Dauer)
-                const bufferedDeadline = new Date(originalDeadline);
-                const bufferInDays = Math.ceil(duration);
-                bufferedDeadline.setDate(originalDeadline.getDate() - bufferInDays);
+            const originalDeadlineDate = parseDateString(task.deadlineDate);
+            if (originalDeadlineDate) {
+                
+                // NEU: Prüfe ob die Deadline (inkl. Zeit) bereits überschritten ist
+                let deadlinePassed = false;
+                if (originalDeadlineDate.getTime() < today.getTime()) {
+                    deadlinePassed = true;
+                } else if (originalDeadlineDate.getTime() === today.getTime() && task.deadlineTime) {
+                    const [hour, minute] = task.deadlineTime.split(':').map(Number);
+                    const deadlineDateTime = new Date(today);
+                    deadlineDateTime.setHours(hour, minute, 0, 0);
+                    if (deadlineDateTime.getTime() < now.getTime()) {
+                        deadlinePassed = true;
+                    }
+                }
 
-                // Wenn das errechnete Startdatum bereits vorbei ist, aber die Deadline noch nicht, starte Heute.
-                if (bufferedDeadline.getTime() < today.getTime() && originalDeadline.getTime() >= today.getTime()) {
+                // Berechne das späteste Startdatum (Deadline minus Dauer)
+                // Diese Logik bleibt primär datumsbasiert, da wir die Aufgabe nicht minutengenau vor der Deadline starten wollen.
+                const bufferedDeadline = new Date(originalDeadlineDate);
+                const bufferInDays = Math.ceil(duration);
+                bufferedDeadline.setDate(originalDeadlineDate.getDate() - bufferInDays);
+
+                // Wenn das errechnete Startdatum bereits vorbei ist ODER die Deadline bereits überschritten ist, starte Heute.
+                if (bufferedDeadline.getTime() < today.getTime() || deadlinePassed) {
                     task.tempPlannedDate = formatDateToYYYYMMDD(today);
                 } else {
-                    // Ansonsten nutze das errechnete Startdatum (kann auch in der Vergangenheit sein, wenn Deadline überschritten)
+                    // Ansonsten nutze das errechnete Startdatum
                     task.tempPlannedDate = formatDateToYYYYMMDD(bufferedDeadline);
                 }
             }
@@ -268,7 +309,7 @@ function calculateFixedTaskDates(tasks) {
 
 /**
  * Erstellt Schedule Items für fixe Aufgaben.
- * GEÄNDERT: Übernimmt Uhrzeit (fixedTime).
+ * GEÄNDERT: Übernimmt Uhrzeit (fixedTime, deadlineTime).
  */
 function scheduleFixedTasks(tasks, currentSchedule) {
     tasks.forEach(task => {
@@ -280,8 +321,9 @@ function scheduleFixedTasks(tasks, currentSchedule) {
             plannedDate: task.tempPlannedDate || null,
             scheduledDuration: getOriginalTotalDuration(task),
             deadlineDate: task.deadlineDate,
+            deadlineTime: task.deadlineTime || null, // NEU: Übernehme Deadline Uhrzeit
             fixedDate: task.fixedDate,
-            fixedTime: task.fixedTime || null, // NEU: Übernehme Uhrzeit
+            fixedTime: task.fixedTime || null, // NEU: Übernehme Fixe Uhrzeit
             isManuallyScheduled: !!task.isManuallyScheduled,
             assignedTo: task.assignedTo,
             notes: task.notes,
@@ -340,7 +382,7 @@ export function recalculateSchedule() {
         let flexible = tasksToPlan.filter(t => t.type === 'Vorteil & Dauer' && !t.isManuallyScheduled);
 
         fixed = calculateFixedTaskDates(fixed);
-        // GEÄNDERT: Sortierung berücksichtigt jetzt Uhrzeit bei Fixen Terminen
+        // GEÄNDERT: Sortierung berücksichtigt jetzt Uhrzeit bei Fixen Terminen und Deadlines
         fixed.sort((a, b) => {
             const dateA = parseDateString(a.tempPlannedDate);
             const dateB = parseDateString(b.tempPlannedDate);
@@ -351,13 +393,26 @@ export function recalculateSchedule() {
                 return dateA.getTime() - dateB.getTime();
             }
             
-            // Wenn das Datum gleich ist, sortiere nach Uhrzeit (nur wenn beide Fixe Termine sind)
+            // Wenn das Datum gleich ist, sortiere nach Typ und Uhrzeit
+            
+            // Priorisiere Fixe Termine vor Deadlines am selben Tag
+            if (a.type === 'Fixer Termin' && b.type !== 'Fixer Termin') return -1;
+            if (b.type === 'Fixer Termin' && a.type !== 'Fixer Termin') return 1;
+
+            // Sortiere Fixe Termine nach Zeit
             if (a.type === 'Fixer Termin' && b.type === 'Fixer Termin') {
                 const timeA = a.fixedTime || "00:00";
                 const timeB = b.fixedTime || "00:00";
                 return timeA.localeCompare(timeB);
             }
             
+            // Sortiere Deadlines nach Zeit (späteste Zeit zuerst, wenn keine angegeben)
+            if (a.type === 'Deadline' && b.type === 'Deadline') {
+                const timeA = a.deadlineTime || "23:59";
+                const timeB = b.deadlineTime || "23:59";
+                return timeA.localeCompare(timeB);
+            }
+
             return 0;
         });
         scheduleFixedTasks(fixed, schedule);
@@ -402,7 +457,7 @@ export async function toggleTaskCompleted(taskId, isCompleted) {
 
 /**
  * Aktualisiert Details einer Aufgabe (aus dem Edit-Modal).
- * GEÄNDERT: Behandelt Typänderungen, Besitzerwechsel und Uhrzeiten.
+ * GEÄNDERT: Behandelt Typänderungen, Besitzerwechsel und Uhrzeiten (Fix/Deadline).
  */
 export async function updateTaskDetails(taskId, updatedDetails) {
     const task = state.tasks.find(t => t.id === taskId);
@@ -447,6 +502,7 @@ export async function updateTaskDetails(taskId, updatedDetails) {
         } else if (oldType === 'Deadline') {
             delete task.deadlineDate;
             delete task.deadlineDuration;
+            delete task.deadlineTime; // NEU
         } else if (oldType === 'Fixer Termin') {
             delete task.fixedDate;
             delete task.fixedDuration;
@@ -461,10 +517,13 @@ export async function updateTaskDetails(taskId, updatedDetails) {
     } else if (task.type === 'Deadline') {
         if (updatedDetails.deadlineDate !== undefined) task.deadlineDate = updatedDetails.deadlineDate;
         if (updatedDetails.deadlineDuration !== undefined) task.deadlineDuration = updatedDetails.deadlineDuration;
+        // NEU: Aktualisiere Deadline Uhrzeit
+        if (updatedDetails.deadlineTime !== undefined) task.deadlineTime = updatedDetails.deadlineTime;
+
     } else if (task.type === 'Fixer Termin') {
         if (updatedDetails.fixedDate !== undefined) task.fixedDate = updatedDetails.fixedDate;
         if (updatedDetails.fixedDuration !== undefined) task.fixedDuration = updatedDetails.fixedDuration;
-        // NEU: Aktualisiere Uhrzeit
+        // NEU: Aktualisiere Fixe Uhrzeit
         if (updatedDetails.fixedTime !== undefined) task.fixedTime = updatedDetails.fixedTime;
     }
 
@@ -474,7 +533,29 @@ export async function updateTaskDetails(taskId, updatedDetails) {
     recalculateSchedule();
 }
 
-// (handleTaskDrop Logik unverändert)
+// (handleTaskDrop Logik vervollständigt)
 export async function handleTaskDrop(draggedTaskId, dropTargetTaskId, insertBefore, newDate) {
-    // ... (unverändert)
+    if (!state.user || state.settings.autoPriority) return false;
+
+    const draggedTask = state.tasks.find(t => t.id === draggedTaskId);
+    if (!draggedTask || draggedTask.completed) return false;
+
+    // 1. Setze manuelles Datum und Status
+    draggedTask.isManuallyScheduled = true;
+    if (newDate) {
+        draggedTask.manualDate = formatDateToYYYYMMDD(newDate);
+    }
+
+    // 2. Sortiere im lokalen State (nur wenn kein Zieldatum angegeben ist oder die Typen flexibel sind)
+    // Die Logik zur Umsortierung der Prioritätenliste (für die manuelle Reihenfolge) ist komplex.
+    // Wir verlassen uns hier auf die Neuberechnung des Schedulers, um die Reihenfolge basierend auf dem manuellen Datum festzulegen.
+    // Eine echte manuelle Sortierung (Drag&Drop Reihenfolge speichern) würde ein zusätzliches Feld (z.B. 'manualOrderIndex') erfordern, 
+    // was den Rahmen dieses Refactorings sprengt. Die aktuelle Implementierung "pinnt" die Aufgabe an das Datum.
+
+    // 3. Speichere die Änderung in der Datenbank
+    await saveTaskDefinition(draggedTask);
+
+    // 4. Berechne den Zeitplan neu
+    recalculateSchedule();
+    return true;
 }
