@@ -12,11 +12,15 @@ const elements = {
     appContainer: document.getElementById('app-container'),
     loginView: document.getElementById('login-view'),
     registerView: document.getElementById('register-view'),
-    // NEU: View für E-Mail Verifizierung
+    // View für E-Mail Verifizierung (muss im HTML vorhanden sein)
     verificationView: document.getElementById('verification-view'),
     authError: document.getElementById('auth-error'),
     body: document.body,
 };
+
+// Stichtag für die obligatorische E-Mail-Verifizierung.
+// Nutzer, die sich davor registriert haben, werden nicht blockiert. (Datum angepasst an den Zeitpunkt der Einführung)
+const VERIFICATION_CUTOFF_DATE = new Date('2025-09-26T00:00:00Z');
 
 // Initialisiert den Auth Listener und die UI Events
 export function initializeAuth(onLoginSuccess) {
@@ -24,19 +28,26 @@ export function initializeAuth(onLoginSuccess) {
 
     // Der Listener reagiert auf Login, Logout und Session-Wiederherstellung
     onAuthStateChanged(auth, async (user) => {
-        // Wir zeigen nicht sofort den Ladebildschirm, um Flackern zu vermeiden, 
-        // stellen aber sicher, dass der richtige Bildschirm angezeigt wird.
 
         if (user) {
             // Benutzer ist angemeldet
 
-            // GEÄNDERT: 2. Prüfe E-Mail Verifizierung
+            // GEÄNDERT: Prüfe E-Mail Verifizierung mit Übergangsregelung (Grandfathering)
             if (!user.emailVerified) {
-                console.log("E-Mail noch nicht verifiziert. Blockiere Zugang.");
-                // Zeige den Verifizierungsbildschirm an
-                showVerificationScreen(user.email);
-                // WICHTIG: Hier abbrechen. Wir betrachten den Nutzer nicht als vollständig eingeloggt.
-                return;
+                // Lese Erstellungszeitpunkt des Accounts aus den Metadaten
+                const creationTime = user.metadata.creationTime ? new Date(user.metadata.creationTime) : new Date();
+                
+                // Wenn der Account nach dem Stichtag erstellt wurde, muss er verifiziert sein.
+                if (creationTime > VERIFICATION_CUTOFF_DATE) {
+                    console.log("Neuer Benutzer, E-Mail nicht verifiziert. Blockiere Zugang.");
+                    // Zeige den Verifizierungsbildschirm an
+                    showVerificationScreen(user.email);
+                    // WICHTIG: Hier abbrechen.
+                    return;
+                } else {
+                    console.log("Bestehender Benutzer, E-Mail nicht verifiziert. Zugang wird gewährt (Grandfathering).");
+                    // Zugang für bestehende Nutzer erlauben
+                }
             }
 
             // 3. Sicherstellen, dass das Profil existiert und vollständig ist
@@ -104,11 +115,11 @@ function showLoginScreen() {
     elements.body.classList.remove('app-layout');
 }
 
-// NEU: Zeigt den Bildschirm an, wenn die E-Mail noch nicht verifiziert ist
+// Zeigt den Bildschirm an, wenn die E-Mail noch nicht verifiziert ist
 function showVerificationScreen(email) {
     if (!elements.verificationView) {
-        // Fallback, falls das HTML Element fehlt (sollte nicht passieren)
-        alert("Bitte bestätige deine E-Mail Adresse.");
+        // Fallback, falls das HTML Element fehlt (sollte durch das neue index.html nicht passieren)
+        alert("Bitte bestätige deine E-Mail Adresse. (Fehler: Verifizierungsansicht nicht gefunden)");
         signOut(auth);
         return;
     }
@@ -183,7 +194,7 @@ function setupAuthUIEvents() {
             // Sende E-Mail Verifizierung
             try {
                 await sendEmailVerification(user);
-                // Der Benutzer wird automatisch angemeldet, aber onAuthStateChanged leitet ihn zum Verifizierungsbildschirm weiter.
+                // Der Benutzer wird automatisch angemeldet, aber onAuthStateChanged leitet ihn zum Verifizierungsbildschirm weiter (wegen des Stichtags).
             } catch (error) {
                 console.error("Fehler beim Senden der Verifizierungs-E-Mail:", error);
             }
@@ -204,7 +215,7 @@ function setupAuthUIEvents() {
         signOut(auth);
     });
 
-    // NEU: Event Listener für den Verifizierungsbildschirm
+    // Event Listener für den Verifizierungsbildschirm
     if (elements.verificationView) {
         document.getElementById('logout-verification-btn').addEventListener('click', () => {
             signOut(auth);
