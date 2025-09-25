@@ -58,7 +58,132 @@ export async function renderApp() {
     attachTaskInteractions();
 }
 
-// ... (updateDateDisplays, populateLocationDropdowns, renderFilterBar, isItemPrioritized - Logik unverändert, da korrekt) ...
+/**
+ * NEU: Aktualisiert die Datumsanzeigen neben "Heute" und "Morgen".
+ */
+function updateDateDisplays() {
+    const today = new Date();
+    const tomorrow = new Date();
+    tomorrow.setDate(today.getDate() + 1);
+
+    if (elements.todayDateDisplay) {
+        elements.todayDateDisplay.textContent = formatDateLocalized(today);
+    }
+    if (elements.tomorrowDateDisplay) {
+        elements.tomorrowDateDisplay.textContent = formatDateLocalized(tomorrow);
+    }
+}
+
+/**
+ * Befüllt die Location-Dropdowns mit den Orten aus den Einstellungen.
+ */
+function populateLocationDropdowns(selectedLocation = null) {
+    const locations = state.settings.locations || [];
+    const newLocationSelect = document.getElementById('newLocationSelect');
+    const editLocationSelect = document.getElementById('edit-location-select');
+
+    [newLocationSelect, editLocationSelect].forEach(select => {
+        if (!select) return;
+        const currentValue = selectedLocation || select.value;
+        select.innerHTML = '<option value="">Kein Ort</option>'; // Standardoption
+        locations.forEach(location => {
+            const option = document.createElement('option');
+            option.value = location;
+            option.textContent = location;
+            select.appendChild(option);
+        });
+        // Setze den zuvor ausgewählten Wert wieder (falls er existiert)
+        if (locations.includes(currentValue) || currentValue === "") {
+            select.value = currentValue;
+        }
+    });
+}
+
+/**
+ * Rendert die Filterleiste basierend auf den aktuellen Aufgaben.
+ */
+async function renderFilterBar() {
+    // 1. Orte aus den zentralen Einstellungen laden
+    const allLocations = state.settings.locations || [];
+
+    // 2. Teammitglieder sammeln (async)
+    const allUsers = await getAllUserProfilesInTasks();
+
+    // Verstecke die Leiste, wenn es keine Filteroptionen gibt
+    if (allLocations.length === 0 && allUsers.length === 0) {
+        filterElements.filterBar.classList.add('hidden');
+        // Wir fahren fort, um sicherzustellen, dass die "Aktiv"-Nachricht ausgeblendet wird
+    } else {
+        filterElements.filterBar.classList.remove('hidden');
+    }
+    
+
+    // 3. Filter-Buttons für Orte erstellen (GEÄNDERT: Checkboxes statt Radio)
+    filterElements.locationFilters.innerHTML = '';
+    if (allLocations.length > 0) {
+        allLocations.forEach(location => {
+            // GEÄNDERT: Prüfe ob Location im Array ist (state.js wurde im vorherigen Schritt angepasst)
+            const isChecked = state.filters.prioritizedLocations.includes(location);
+            const toggleHtml = `
+                <label class="filter-checkbox-label">
+                    <input type="checkbox" name="location-filter" value="${location}" class="location-filter-checkbox" ${isChecked ? 'checked' : ''}>
+                    <span class="filter-toggle">${location}</span>
+                </label>
+            `;
+            filterElements.locationFilters.innerHTML += toggleHtml;
+        });
+    } else {
+        filterElements.locationFilters.innerHTML = `<p class="text-sm text-gray-500">Keine Orte definiert.</p>`;
+    }
+
+    // 4. Filter-Buttons für Benutzer erstellen
+    filterElements.userFilters.innerHTML = '';
+    if (allUsers.length > 0) {
+        allUsers.forEach(user => {
+            const isChecked = state.filters.prioritizedUserIds.includes(user.uid);
+            const toggleHtml = `
+                <label class="filter-checkbox-label">
+                    <input type="checkbox" value="${user.uid}" class="user-filter-checkbox" ${isChecked ? 'checked' : ''}>
+                    <span class="filter-toggle">${user.displayName} (${user.shortName})</span>
+                </label>
+            `;
+            filterElements.userFilters.innerHTML += toggleHtml;
+        });
+    } else {
+        filterElements.userFilters.innerHTML = `<p class="text-sm text-gray-500">Keine Team-Aufgaben vorhanden.</p>`;
+    }
+
+    // 5. Zustand des "Löschen"-Buttons und der Nachricht aktualisieren
+    // GEÄNDERT: Prüfe prioritizedLocations
+    const isFilterActive = state.filters.prioritizedLocations.length > 0 || state.filters.prioritizedUserIds.length > 0;
+    filterElements.clearFiltersBtn.disabled = !isFilterActive;
+    if (isFilterActive) {
+        filterElements.filterActiveMessage.classList.remove('hidden');
+    } else {
+        filterElements.filterActiveMessage.classList.add('hidden');
+    }
+}
+
+/**
+ * Prüft, ob ein Schedule-Item den aktiven Filtern entspricht.
+ */
+function isItemPrioritized(item) {
+    // GEÄNDERT: Prüfe prioritizedLocations (Array)
+    const { prioritizedLocations, prioritizedUserIds } = state.filters;
+    const matchesLocation = prioritizedLocations.length > 0 && prioritizedLocations.includes(item.location);
+    
+    // Für die Benutzerprüfung müssen alle ausgewählten User UND der aktuelle Benutzer dabei sein (siehe scheduler.js)
+    const currentUserId = state.user ? state.user.uid : null;
+    
+    // Wenn kein User eingeloggt ist, kann nur der Ort matchen
+    if (!currentUserId) return matchesLocation;
+
+    const requiredUsers = [...prioritizedUserIds, currentUserId];
+    // Prüft, ob alle erforderlichen Benutzer der Aufgabe zugewiesen sind
+    const matchesUsers = prioritizedUserIds.length > 0 && requiredUsers.every(uid => (item.assignedTo || []).includes(uid));
+    
+    return matchesLocation || matchesUsers;
+}
 
 
 /**
@@ -380,4 +505,182 @@ function createCompletedTaskElement(task, assignedShortNames = []) {
 }
 
 
-// ... (updateAvailableTimeDisplays, renderSettingsModal, renderLocationsManagement, renderDailyTimeslots, createTimeslotElement bleiben unverändert)
+// WIEDERHERGESTELLT: Die folgenden Funktionen waren in den letzten Antworten teilweise abgeschnitten.
+
+function updateAvailableTimeDisplays() {
+    const today = normalizeDate();
+    const tomorrow = normalizeDate();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    // Berechne die verfügbare Zeit (inkl. Berücksichtigung der aktuellen Uhrzeit für Heute)
+    const availableToday = getDailyAvailableHours(today);
+    const availableTomorrow = getDailyAvailableHours(tomorrow);
+
+    // Berechne die geplante Zeit
+    let consumedToday = 0;
+    let consumedTomorrow = 0;
+    let consumedFuture = 0;
+
+    // Wir müssen auch Aufgaben berücksichtigen, die für die Vergangenheit geplant waren (Überfällig)
+    // Diese zählen zur heutigen Last.
+    state.schedule.forEach(item => {
+        const itemDate = parseDateString(item.plannedDate);
+        
+        // Behandle nicht planbare Aufgaben (zählen zur Zukunftslast)
+        if (!itemDate) {
+            consumedFuture += getScheduleItemDuration(item);
+            return;
+        }
+
+        const duration = getScheduleItemDuration(item);
+
+        if (itemDate.getTime() <= today.getTime()) {
+            consumedToday += duration;
+        } else if (itemDate.getTime() === tomorrow.getTime()) {
+            consumedTomorrow += duration;
+        } else {
+            consumedFuture += duration;
+        }
+    });
+
+    // Berechne die Restzeit (kann negativ sein, wenn überbucht)
+    // Wir verwenden die verfügbare Zeit ab JETZT für die Berechnung des Rests Heute.
+    const remainingToday = availableToday - consumedToday;
+    const remainingTomorrow = availableTomorrow - consumedTomorrow;
+
+    // Aktualisiere die Anzeige
+    if (elements.todayAvailableTime) {
+        // Angepasst: Zeigt Geplant und Restzeit an.
+        elements.todayAvailableTime.textContent = `Geplant: ${formatHoursMinutes(consumedToday)} (Rest ab jetzt: ${formatHoursMinutes(remainingToday)})`;
+        // Zeige Warnung, wenn überbucht (Restzeit < 0)
+        if (remainingToday < -0.01) {
+             elements.todayAvailableTime.classList.add('text-red-600', 'font-semibold');
+        } else {
+             elements.todayAvailableTime.classList.remove('text-red-600', 'font-semibold');
+        }
+    }
+    if (elements.tomorrowAvailableTime) {
+        elements.tomorrowAvailableTime.textContent = `Geplant: ${formatHoursMinutes(consumedTomorrow)} (Rest: ${formatHoursMinutes(remainingTomorrow)})`;
+        if (remainingTomorrow < -0.01) {
+            elements.tomorrowAvailableTime.classList.add('text-red-600', 'font-semibold');
+       } else {
+            elements.tomorrowAvailableTime.classList.remove('text-red-600', 'font-semibold');
+       }
+    }
+    if (elements.futureAvailableTime) {
+        // Für die Zukunft zeigen wir nur die geplante Gesamtzeit an
+        elements.futureAvailableTime.textContent = `Insgesamt geplant: ${formatHoursMinutes(consumedFuture)}`;
+    }
+}
+
+export function renderSettingsModal(settings) {
+    if (elements.calcPriorityCheckbox) {
+        elements.calcPriorityCheckbox.checked = settings.calcPriority;
+    }
+    // Stellt sicher, dass die Listen im Modal gerendert werden
+    renderDailyTimeslots(settings.dailyTimeSlots);
+    renderLocationsManagement(settings.locations);
+}
+
+/**
+ * Rendert die Ortsverwaltung im Einstellungs-Modal.
+ */
+function renderLocationsManagement(locations = []) {
+    const container = elements.locationsListContainer;
+    if (!container) return;
+    container.innerHTML = '';
+
+    if (locations.length === 0) {
+        container.innerHTML = '<p class="text-gray-500 italic mb-4">Noch keine Orte definiert.</p>';
+        return;
+    }
+
+    locations.forEach(location => {
+        const item = document.createElement('div');
+        item.className = 'location-management-item';
+        // Wir nutzen ein Input-Feld für das Umbenennen.
+        // data-original-location speichert den aktuellen Namen für die Logik in ui-actions.js
+        item.innerHTML = `
+            <input type="text" value="${location}" data-original-location="${location}" class="location-name-input flex-grow p-1 border border-transparent rounded-md hover:border-gray-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none mr-2">
+            <button data-location="${location}" class="remove-location-btn focus:outline-none" title="Löschen">&times;</button>
+        `;
+        container.appendChild(item);
+    });
+}
+
+function renderDailyTimeslots(dailyTimeSlots) {
+    const container = elements.dailyTimeslotsContainer;
+    if (!container) return;
+    container.innerHTML = '';
+
+    WEEKDAYS.forEach(dayName => {
+        const dayDiv = document.createElement('div');
+        dayDiv.className = 'day-section';
+
+        const slots = dailyTimeSlots[dayName] || [];
+        
+        // Header: Wochentag und Buttons (Vereinfachtes Layout)
+        const header = document.createElement('div');
+        header.className = 'flex justify-between items-center mb-4';
+        header.innerHTML = `<h3 class="text-lg font-semibold text-gray-800">${dayName}</h3>`;
+        
+        const buttonsDiv = document.createElement('div');
+        buttonsDiv.className = 'flex space-x-2';
+
+        if (slots.length > 0) {
+            // Button zum Hinzufügen eines weiteren Slots
+            buttonsDiv.innerHTML += `<button data-day="${dayName}" class="add-timeslot-btn text-blue-500 hover:text-blue-700 focus:outline-none" title="Zeitfenster hinzufügen">
+                                    <i class="fas fa-plus-circle"></i>
+                                </button>`;
+            // Button zum Entfernen aller Slots des Tages
+            buttonsDiv.innerHTML += `<button data-day="${dayName}" class="remove-day-btn text-red-500 hover:text-red-700 focus:outline-none" title="Alle Zeitfenster für diesen Tag löschen">
+                                    <i class="fas fa-trash-alt"></i>
+                                </button>`;
+        } else {
+            // Wenn keine Slots vorhanden sind, zeige "Wiederherstellen" Button
+            buttonsDiv.innerHTML = `<button data-day="${dayName}" class="restore-day-btn text-green-500 hover:text-green-700 focus:outline-none" title="Standardzeitfenster erstellen">
+                                <i class="fas fa-plus-circle"></i> Hinzufügen
+                           </button>`;
+        }
+        header.appendChild(buttonsDiv);
+        dayDiv.appendChild(header);
+
+        // Container für die einzelnen Slots
+        const slotsDiv = document.createElement('div');
+        slotsDiv.id = `timeslots-${dayName}`;
+        slotsDiv.className = 'space-y-3';
+
+        if (slots.length === 0) {
+            slotsDiv.innerHTML = '<p class="text-gray-500 italic">Keine Zeitfenster definiert (Keine Verfügbarkeit).</p>';
+        } else {
+            // Sortiere Slots nach Startzeit, bevor sie gerendert werden
+            slots.sort((a, b) => a.start.localeCompare(b.start));
+            slots.forEach(slot => {
+                // Angepasst: createTimeslotElement Signatur
+                slotsDiv.appendChild(createTimeslotElement(slot, dayName));
+            });
+        }
+
+        dayDiv.appendChild(slotsDiv);
+        container.appendChild(dayDiv);
+    });
+}
+
+// Angepasst: Signatur
+function createTimeslotElement(slot, dayName) {
+    const slotDiv = document.createElement('div');
+    // timeslot-row Klasse wird für das Auslesen der Daten benötigt (updateAndGetSettingsFromModal)
+    slotDiv.className = 'flex items-center space-x-4 timeslot-row';
+    // data-timeslot-id wird benötigt, um Slots eindeutig zu identifizieren
+    slotDiv.dataset.timeslotId = slot.id;
+
+    slotDiv.innerHTML = `
+        <input type="time" value="${slot.start}" class="timeslot-start-input p-2 border border-gray-300 rounded-lg w-full">
+        <span class="text-gray-500">bis</span>
+        <input type="time" value="${slot.end}" class="timeslot-end-input p-2 border border-gray-300 rounded-lg w-full">
+        <button data-day="${dayName}" data-timeslot-id="${slot.id}" class="remove-timeslot-btn focus:outline-none" title="Diesen Slot entfernen">
+            <i class="fas fa-times"></i>
+        </button>
+    `;
+    return slotDiv;
+}
