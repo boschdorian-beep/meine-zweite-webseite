@@ -6,7 +6,7 @@ import { renderApp } from './ui-render.js';
 import {
     openModal, closeModal, setActiveTaskType, clearInputs, updateAndGetSettingsFromModal,
     closeEditModal, handleSaveEditedTask, handleDeleteTask, handleClearCompleted, attachFilterInteractions,
-    initializeCollaborationUI // NEU: Initialisierung der Kollaborations-UI
+    initializeCollaborationUI
 } from './ui-actions.js';
 import { normalizeDate, calculateDecimalHours } from './utils.js';
 import { initializeAuth, showLoadingScreen, showAppScreen } from './auth.js';
@@ -173,7 +173,28 @@ function attachEventListeners() {
 // --- Handlers ---
 
 async function handleToggleDragDrop(event) {
-    // ... (unverändert, Logik ist korrekt)
+    const manualSortEnabled = event.target.checked;
+    // autoPriority ist das Gegenteil von Manuell Sortieren
+    const newSettings = { ...state.settings, autoPriority: !manualSortEnabled };
+    
+    // Wenn Manuell Sortieren aktiviert wird, warnen wir den Nutzer nicht.
+    // Wenn es deaktiviert wird (zurück zur Automatik), setzen wir den manuellen Status zurück.
+    if (manualSortEnabled === false) {
+        if (!confirm("Wenn du 'Manuell Sortieren' deaktivierst, wird der Zeitplan automatisch nach Priorität neu berechnet. Manuelle Anpassungen (gepinnte Daten) gehen verloren. Fortfahren?")) {
+            // Wenn der Nutzer abbricht, Checkbox zurücksetzen
+            event.target.checked = true;
+            return;
+        }
+        // isManuallyScheduled wird beim nächsten recalculateSchedule zurückgesetzt, wenn autoPriority true ist.
+    }
+
+    // Speichere die Einstellung (Der Listener wird die Neuberechnung triggern)
+    await saveSettings(newSettings);
+
+    // Für sofortiges Feedback (bevor der Listener feuert)
+    state.settings = newSettings;
+    recalculateSchedule();
+    await renderApp();
 }
 
 
@@ -221,6 +242,10 @@ async function handleAddTask() {
             if (!deadlineDate) throw new Error("Bitte gib ein Deadline Datum ein!");
             taskDefinition.deadlineDate = deadlineDate;
             
+            // NEU: Lese die Uhrzeit (optional)
+            const deadlineTime = document.getElementById('deadline-time').value;
+            taskDefinition.deadlineTime = deadlineTime || null;
+
             const hours = document.getElementById('deadline-duration-h').value;
             const minutes = document.getElementById('deadline-duration-m').value;
             taskDefinition.deadlineDuration = calculateDecimalHours(hours, minutes);
@@ -244,6 +269,10 @@ async function handleAddTask() {
 
         if (newId) {
             // Der Firestore Listener (handleDataUpdate) wird die neue Aufgabe erhalten und alles aktualisieren.
+            
+            // NEU: Zeige visuelles Feedback (Toast)
+            showToast("Aufgabe erfolgreich hinzugefügt!");
+
             // Nur Inputs leeren (clearInputs() setzt auch die Zuweisungen zurück)
             clearInputs();
         } else {
@@ -256,5 +285,70 @@ async function handleAddTask() {
 }
 
 async function handleSaveSettings() {
-    // ... (unverändert, Logik ist korrekt)
+    // Lese die Einstellungen aus dem Modal
+    const newSettings = updateAndGetSettingsFromModal();
+    
+     // Validierung der Zeitfenster (muss hier passieren, bevor gespeichert wird)
+    let isValid = true;
+    Object.values(newSettings.dailyTimeSlots).forEach(daySlots => {
+        daySlots.forEach(slot => {
+            if (slot.start >= slot.end) {
+                isValid = false;
+            }
+        });
+    });
+
+    if (!isValid) {
+        alert("Fehlerhafte Zeitangaben: Die Startzeit muss vor der Endzeit liegen.");
+        return;
+    }
+
+    // Speichern der Einstellungen (async)
+    await saveSettings(newSettings);
+
+    // State wird durch den Listener aktualisiert, aber wir können ihn hier schon setzen für Responsivität
+    // (handleDataUpdate prüft auf unnötige Updates)
+    state.settings = newSettings;
+
+    closeModal();
+    
+    // Erzwinge Neuberechnung und Rendering
+    recalculateSchedule();
+    await renderApp();
+}
+
+/**
+ * NEU: Zeigt eine Toast-Benachrichtigung an.
+ */
+export function showToast(message, type = 'success') {
+    const toastContainer = document.getElementById('toast-container');
+    if (!toastContainer) return;
+
+    const toast = document.createElement('div');
+    toast.className = 'toast-notification';
+    
+    // Icon basierend auf Typ (aktuell nur success)
+    let icon = '';
+    if (type === 'success') {
+        icon = '<i class="fas fa-check-circle text-xl"></i>';
+    }
+
+    toast.innerHTML = `${icon}<span>${message}</span>`;
+    toastContainer.appendChild(toast);
+
+    // Einblenden
+    setTimeout(() => {
+        toast.style.opacity = '1';
+    }, 100);
+
+    // Automatisches Ausblenden nach 3 Sekunden
+    setTimeout(() => {
+        toast.style.opacity = '0';
+        // Entfernen aus DOM nach Abschluss der Transition
+        setTimeout(() => {
+            if (toastContainer.contains(toast)) {
+                toastContainer.removeChild(toast);
+            }
+        }, 500);
+    }, 3000);
 }
