@@ -39,27 +39,18 @@ export function formatDateToYYYYMMDD(date) {
 
 /**
  * NEU: Formatiert ein Datum lokalisiert (z.B. "Do., 25. Sept.").
- * Optional mit Uhrzeit, wenn `timeString` (HH:MM) übergeben wird.
  */
-export function formatDateLocalized(date, timeString = null) {
+export function formatDateLocalized(date) {
     if (!date || !(date instanceof Date) || isNaN(date.getTime())) return '';
     
     // Nutzt die Intl API für die lokalisierte Formatierung
     const options = { weekday: 'short', day: 'numeric', month: 'short' };
-    
     // Wir verwenden 'de-DE' für das deutsche Format.
     try {
-        let formattedDate = date.toLocaleDateString('de-DE', options);
-        
-        if (timeString) {
-            // Füge die Uhrzeit hinzu (z.B. "Do., 25. Sept. @ 14:30")
-            formattedDate += ` @ ${timeString}`;
-        }
-        return formattedDate;
-
+        return date.toLocaleDateString('de-DE', options);
     } catch (error) {
         console.error("Error formatting date localized:", error);
-        return formatDateToYYYYMMDD(date) + (timeString ? ` ${timeString}` : ''); // Fallback
+        return formatDateToYYYYMMDD(date); // Fallback
     }
 }
 
