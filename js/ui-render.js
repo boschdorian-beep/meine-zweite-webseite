@@ -23,12 +23,11 @@ const elements = {
     futureAvailableTime: document.getElementById('futureAvailableTime'),
     dailyTimeslotsContainer: document.getElementById('dailyTimeslotsContainer'),
     calcPriorityCheckbox: document.getElementById('calcPriorityCheckbox'),
-    // Checkbox für exakte Zeiten
-    showExactTimesCheckbox: document.getElementById('showExactTimesCheckbox'),
-    // Datumsanzeige
+    // toggleDragDrop entfernt.
+    // NEU: Datumsanzeige
     todayDateDisplay: document.getElementById('todayDateDisplay'),
     tomorrowDateDisplay: document.getElementById('tomorrowDateDisplay'),
-    // Input für Textlänge in Einstellungen
+    // NEU: Input für Textlänge in Einstellungen
     taskTruncationLengthInput: document.getElementById('taskTruncationLengthInput'),
 };
 // Elemente für die Filterleiste
@@ -48,6 +47,8 @@ export async function renderApp() {
     populateLocationDropdowns(); // Dropdowns befüllen
     updateAvailableTimeDisplays();
     updateDateDisplays(); // Aktualisiere die Datumsanzeigen
+
+    // (Toggle State Update für DragDrop entfernt)
 
     // Interaktionen müssen nach dem Rendern angehängt werden
     attachTaskInteractions();
@@ -277,7 +278,7 @@ async function renderCompletedTasks() {
 
 
 /**
- * Hilfsfunktion zur Kürzung des Textes.
+ * NEU: Hilfsfunktion zur Kürzung des Textes.
  * Behandelt Aufgaben-Teile speziell.
  */
 function truncateText(text, maxLength) {
@@ -307,7 +308,7 @@ function truncateText(text, maxLength) {
 
 /**
  * Erstellt das DOM Element für ein aktives Schedule Item.
- * GEÄNDERT: Komplett überarbeitet, um das CSS Grid Layout zu nutzen.
+ * GEÄNDERT: Zeigt Uhrzeit, Prioritätspfeile und gekürzten Text an.
  */
 function createScheduleItemElement(item, assignedShortNames = []) {
     const itemElement = document.createElement('div');
@@ -326,7 +327,7 @@ function createScheduleItemElement(item, assignedShortNames = []) {
         classes += ' prioritized';
     }
 
-    // Draggable status
+    // Draggable status & Cursor entfernt.
     itemElement.draggable = false;
     classes += ' cursor-default';
 
@@ -334,9 +335,9 @@ function createScheduleItemElement(item, assignedShortNames = []) {
     itemElement.dataset.taskId = item.taskId;
     itemElement.dataset.scheduleId = item.scheduleId;
 
-    // --- Elemente definieren (Inhalte für die Grid-Zellen) ---
+    // --- Neue Elemente ---
 
-    // 1. Ortsmarkierung (Keine Grid-Zelle, absolut positioniert)
+    // 1. Ortsmarkierung
     let locationMarker = '';
     if (item.location) {
         const color = generateColorFromString(item.location);
@@ -348,12 +349,11 @@ function createScheduleItemElement(item, assignedShortNames = []) {
     let notesContentHtml = '';
     if (item.notes) {
         // Button zum Ein-/Ausklappen (Standardmäßig eingeklappt)
-        // ml-2 für Abstand zum vorherigen Element im task-content
-        notesToggle = `<button class="toggle-notes-btn ml-2 cursor-pointer hover:text-gray-700 transition duration-150 focus:outline-none" title="Notizen anzeigen/verbergen">
+        notesToggle = `<button class="toggle-notes-btn ml-3 cursor-pointer hover:text-gray-700 transition duration-150 focus:outline-none" title="Notizen anzeigen/verbergen">
                             <i class="fas fa-chevron-down text-gray-500"></i>
                        </button>`;
-        // Inhalt (versteckt) - wird später im expanded-container platziert
-        notesContentHtml = `<div class="task-notes-content hidden"></div>`;
+        // Inhalt (versteckt) - wird später als Element hinzugefügt für Sicherheit (textContent)
+        notesContentHtml = `<div class="task-notes-content hidden w-full"></div>`;
     }
 
     // 3. Zugewiesene Benutzer (Kürzel)
@@ -363,7 +363,7 @@ function createScheduleItemElement(item, assignedShortNames = []) {
         assignedUsersDisplay = `<div class="assigned-users-display">${userBadges}</div>`;
     }
 
-    // 4. Prioritäts-Pfeile
+    // 4. NEU: Prioritäts-Pfeile
     const priority = item.priority || 3;
     const isPrioUpDisabled = priority >= 5;
     const isPrioDownDisabled = priority <= 1;
@@ -392,32 +392,31 @@ function createScheduleItemElement(item, assignedShortNames = []) {
     }
 
 
-    // 5. Gekürzte Beschreibung und Toggle
+    // 5. NEU: Gekürzte Beschreibung und Toggle
     const truncationLength = state.settings.taskTruncationLength || 30;
     const { truncated, isTruncated, suffix } = truncateText(item.description, truncationLength);
     
     let descriptionToggle = '';
     // Gekürzter Text (Standardmäßig sichtbar) - Span wird später befüllt.
     let descriptionContentHtml = `<span class="task-description-short"></span>`;
-    // Voller Text (Standardmäßig versteckt, nur wenn gekürzt) - wird später im expanded-container platziert
+    // Voller Text (Standardmäßig versteckt, nur wenn gekürzt)
     let fullDescriptionHtml = '';
 
     if (isTruncated) {
         // Button zum Umschalten
-        // ml-2 für Abstand zum vorherigen Element im task-content
-        descriptionToggle = `<button class="toggle-description-btn ml-2 cursor-pointer hover:text-gray-700 transition duration-150 focus:outline-none" title="Vollständigen Text anzeigen">
+        descriptionToggle = `<button class="toggle-description-btn ml-3 cursor-pointer hover:text-gray-700 transition duration-150 focus:outline-none" title="Vollständigen Text anzeigen">
                                 <i class="fas fa-chevron-down text-gray-500"></i>
                              </button>`;
         // Der vollständige Text wird später sicher eingefügt. Suffix wird hier als Text hinzugefügt.
-        fullDescriptionHtml = `<div class="task-description-full hidden">${suffix}</div>`;
+        fullDescriptionHtml = `<div class="task-description-full hidden w-full">${suffix}</div>`;
     }
 
 
-    // --- Metadaten Elemente ---
+    // --- Bestehende Elemente (angepasst) ---
 
     // Dauer
     const duration = getScheduleItemDuration(item);
-    const durationDisplay = duration > 0 ? `<span class="text-sm text-gray-500">(${formatHoursMinutes(duration)})</span>` : '';
+    const durationDisplay = duration > 0 ? `<span class="ml-4 text-sm text-gray-500">(${formatHoursMinutes(duration)})</span>` : '';
 
     // Finanzieller Vorteil
     let benefitDisplay = '';
@@ -426,9 +425,9 @@ function createScheduleItemElement(item, assignedShortNames = []) {
         const originalDuration = parseFloat(item.estimatedDuration) || 0;
         if (originalDuration > 0) {
             const benefitPerHour = (parseFloat(item.financialBenefit) / originalDuration).toFixed(2);
-            benefitDisplay = `<span class="text-sm text-green-700">(${benefitPerHour}€/h)</span>`;
+            benefitDisplay = `<span class="ml-2 text-sm text-green-700">(${benefitPerHour}€/h)</span>`;
         } else {
-            benefitDisplay = `<span class="text-sm text-green-700">(${parseFloat(item.financialBenefit)}€)</span>`;
+            benefitDisplay = `<span class="ml-2 text-sm text-green-700">(${parseFloat(item.financialBenefit)}€)</span>`;
         }
     }
 
@@ -439,66 +438,45 @@ function createScheduleItemElement(item, assignedShortNames = []) {
 
     if (itemPlannedDate && itemPlannedDate.getTime() > tomorrow.getTime()) {
         // Nutze lokalisierte Formatierung für zukünftige Daten
-        plannedDateDisplay = `<span class="text-sm text-gray-400">(${formatDateLocalized(itemPlannedDate)})</span>`;
+        plannedDateDisplay = `<span class="ml-2 text-sm text-gray-400">(${formatDateLocalized(itemPlannedDate)})</span>`;
     }
 
-    // Uhrzeit für Fixe Termine oder Berechnete Zeiten
+    // Uhrzeit für Fixe Termine
     let timeDisplay = '';
-    
-    // Priorität 1: Berechnete Zeiten (wenn aktiviert und vorhanden)
-    if (state.settings.showExactTimes && item.calculatedStartTime && item.calculatedEndTime) {
-        // Nutzt eine leicht andere Farbe (Violett/Akzent) für berechnete Zeiten
-        timeDisplay = `<span class="text-sm text-accent font-semibold">${item.calculatedStartTime} - ${item.calculatedEndTime}</span>`;
-    } 
-    // Priorität 2: Fixe Zeit (falls Einstellung aus oder Zeit nicht berechnet)
-    else if (item.type === 'Fixer Termin' && item.fixedTime) {
-        timeDisplay = `<span class="text-sm text-blue-500 font-semibold">@ ${item.fixedTime}</span>`;
+    if (item.type === 'Fixer Termin' && item.fixedTime) {
+        timeDisplay = `<span class="ml-2 text-sm text-blue-500 font-semibold">@ ${item.fixedTime}</span>`;
     }
 
-    // Deadline Info (Datum und Uhrzeit)
-    let deadlineInfo = '';
-    if (item.deadlineDate) {
-        deadlineInfo = `<span class="text-sm text-red-500">Deadline: ${formatDateLocalized(parseDateString(item.deadlineDate))}`;
-        if (item.deadlineTime) {
-            deadlineInfo += ` ${item.deadlineTime}`;
-        }
-        deadlineInfo += `</span>`;
-    }
-
-    // NEU: Container für expandierbaren Inhalt (wenn vorhanden)
-    let expandedContainerHtml = '';
-    if (isTruncated || item.notes) {
-        expandedContainerHtml = `
-            <div class="task-expanded-container">
-                ${fullDescriptionHtml}
-                ${notesContentHtml}
-            </div>
-        `;
-    }
+    // Manuell geplante Markierung (ENTFERNT)
 
 
-    // Finales HTML Layout (CSS Grid Struktur)
-    // Jedes direkte Child-Element ist eine Grid-Zelle.
+    // Finales HTML Layout
+    // GEÄNDERT: Layout angepasst, um Beschreibungstoggle und Notizen unterzubringen.
+    // Das task-item verwendet `items-start` (in CSS). Checkbox benötigt mt-0.5 für vertikale Ausrichtung.
     itemElement.innerHTML = `
         ${locationMarker}
-        
-        <input type="checkbox" data-task-id="${item.taskId}" class="task-checkbox form-checkbox h-5 w-5 text-green-600 rounded cursor-pointer">
-        
-        <div class="task-content">
-             ${descriptionContentHtml}
-             ${descriptionToggle}
-             ${notesToggle}
+        <div class="flex flex-col flex-grow w-full">
+            <div class="flex items-center w-full">
+                <input type="checkbox" data-task-id="${item.taskId}" class="task-checkbox form-checkbox h-5 w-5 text-green-600 rounded mr-3 cursor-pointer mt-0.5">
+                
+                <div class="task-content flex items-center text-lg cursor-pointer hover:text-blue-600 transition duration-150">
+                    ${descriptionContentHtml}
+                    ${descriptionToggle}
+                    ${timeDisplay}
+                    ${notesToggle}
+                </div>
+
+                ${priorityArrowsHtml}
+                ${durationDisplay}
+                ${benefitDisplay}
+                ${item.deadlineDate ? `<span class="ml-2 text-sm text-red-500">Deadline: ${formatDateLocalized(parseDateString(item.deadlineDate))}</span>` : ''}
+                ${plannedDateDisplay}
+                ${assignedUsersDisplay}
+            </div>
+
+            ${fullDescriptionHtml}
+            ${notesContentHtml}
         </div>
-
-        ${timeDisplay}
-        ${priorityArrowsHtml}
-        ${durationDisplay}
-        ${benefitDisplay}
-        ${deadlineInfo}
-        ${plannedDateDisplay}
-        ${assignedUsersDisplay}
-
-        ${expandedContainerHtml}
     `;
 
     // Sicherstellen, dass Inhalte als Text eingefügt werden (verhindert XSS)
@@ -538,7 +516,7 @@ function createScheduleItemElement(item, assignedShortNames = []) {
 
 /**
  * Erstellt das DOM Element für eine erledigte Aufgabe (Definition).
- * GEÄNDERT: Angepasst an das neue CSS Grid Layout.
+ * Zeigt Location, Assigned Users, Priorität (nur Zahl) und wendet Kürzung an.
  */
 function createCompletedTaskElement(task, assignedShortNames = []) {
     const taskElement = document.createElement('div');
@@ -561,7 +539,7 @@ function createCompletedTaskElement(task, assignedShortNames = []) {
         assignedUsersDisplay = `<div class="assigned-users-display">${userBadges}</div>`;
     }
 
-    // Priorität (nur Anzeige)
+    // NEU: Priorität (nur Anzeige)
     const priority = task.priority || 3;
     const priorityDisplayHtml = `
         <div class="priority-arrows">
@@ -569,29 +547,24 @@ function createCompletedTaskElement(task, assignedShortNames = []) {
         </div>
     `;
 
-    // Dauer
+    // Dauer (nutzt neue Formatierung)
     const duration = getOriginalTotalDuration(task);
-    const durationDisplay = duration > 0 ? `<span class="text-sm text-gray-500">(${formatHoursMinutes(duration)})</span>` : '';
+    const durationDisplay = duration > 0 ? `<span class="ml-4 text-sm text-gray-500">(${formatHoursMinutes(duration)})</span>` : '';
 
     // Textkürzung auch hier anwenden (ohne Toggle, da erledigt)
     const truncationLength = state.settings.taskTruncationLength || 30;
     // Bei erledigten Aufgaben gibt es keine Teile mehr.
     const { truncated } = truncateText(task.description, truncationLength);
 
-    // GEÄNDERT: Nutzt das neue CSS Grid Layout (flache Struktur)
-    // Wir fügen leere <span> Elemente ein, um die Spalten auszurichten, die bei erledigten Aufgaben fehlen (Zeit, Benefit, Deadline, Datum).
     taskElement.innerHTML = `
         ${locationMarker}
-        
-        <input type="checkbox" data-task-id="${task.id}" checked class="task-checkbox form-checkbox h-5 w-5 text-green-600 rounded mr-3 cursor-pointer">
-        
-        <div class="task-content">
-             <span class="text-gray-800 text-lg">${truncated}</span>
+        <div class="flex items-center flex-grow">
+            <input type="checkbox" data-task-id="${task.id}" checked class="task-checkbox form-checkbox h-5 w-5 text-green-600 rounded mr-3 cursor-pointer">
+            <span class="task-content text-gray-800 text-lg">${truncated}</span>
+            ${priorityDisplayHtml}
+            ${durationDisplay}
+            ${assignedUsersDisplay}
         </div>
-
-        <span></span> ${priorityDisplayHtml}
-        ${durationDisplay}
-        <span></span> <span></span> <span></span> ${assignedUsersDisplay}
     `;
     return taskElement;
 }
@@ -655,16 +628,11 @@ export function renderSettingsModal(settingsToRender) {
      if (!settingsToRender || !settingsToRender.dailyTimeSlots) return;
     elements.calcPriorityCheckbox.checked = settingsToRender.calcPriority;
 
-    // Befülle die Checkbox für die exakte Zeitanzeige
-    if (elements.showExactTimesCheckbox) {
-        elements.showExactTimesCheckbox.checked = settingsToRender.showExactTimes || false;
-    }
-
-    // Befülle das Input-Feld für die Textlänge
+    // NEU: Befülle das Input-Feld für die Textlänge
     if (elements.taskTruncationLengthInput) {
         elements.taskTruncationLengthInput.value = settingsToRender.taskTruncationLength || 30;
     }
-    
+
     renderLocationsManagement(settingsToRender.locations || []);
     renderDailyTimeslots(settingsToRender);
 }
@@ -748,7 +716,7 @@ function createTimeslotElement(dayName, slotId, startTime, endTime) {
 }
 
 /**
- * Rendert den Prioritäts-Selector (Radio Buttons) im jeweiligen Kontext.
+ * NEU: Rendert den Prioritäts-Selector (Radio Buttons) im jeweiligen Kontext.
  */
 export function renderPrioritySelector(context, currentPriority) {
     // context ist 'new' oder 'edit'
