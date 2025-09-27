@@ -7,26 +7,6 @@ const MAX_SCHEDULING_HORIZON = 365;
 // Epsilon wird für Fließkommavergleiche benötigt (z.B. ob noch Restzeit übrig ist)
 const EPSILON = 0.0001; // Präzise genug für Minuten-Berechnung
 
-// NEU: Hilfsfunktionen für Zeitberechnungen
-function timeToMins(timeStr) {
-    if (!timeStr) return 0;
-    const [h, m] = timeStr.split(':').map(Number);
-    return h * 60 + m;
-}
-
-function minsToTime(mins) {
-    const h = Math.floor(mins / 60);
-    const m = Math.round(mins % 60);
-    // Handle edge case near midnight. If it exceeds 24h, it means the calculation logic failed to advance the day, 
-    // but we display it capped at 23:59 for safety if it happens within the same day calculation context.
-    if (h >= 24) {
-        // console.warn("Calculated time exceeds 24h:", h, m);
-        return "23:59"; 
-    }
-    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
-}
-
-
 export function getScheduleItemDuration(item) {
     return parseFloat(item.scheduledDuration) || 0;
 }
@@ -90,7 +70,7 @@ function getConsumedHoursForDay(date, currentSchedule) {
     }, 0);
 }
 
-// Sortierlogik für flexible Aufgaben (Priorität > Finanzieller Vorteil).
+// GEÄNDERT: Sortierlogik für flexible Aufgaben (Priorität > Finanzieller Vorteil).
 export function sortTasksByPriority(taskA, taskB) {
     // HINWEIS: Diese Funktion wird nur für flexible Aufgaben (Typ "Vorteil & Dauer") verwendet.
     // Fixe Termine und Deadlines werden separat behandelt.
@@ -142,10 +122,11 @@ function scheduleFlexibleTask(task, currentSchedule) {
         type: task.type,
         financialBenefit: task.financialBenefit,
         estimatedDuration: task.estimatedDuration, // Wichtig für die Berechnung des Vorteils/h
+        // isManuallyScheduled entfernt
         assignedTo: task.assignedTo,
         notes: task.notes,
         location: task.location,
-        priority: task.priority || 3
+        priority: task.priority || 3 // NEU: Priorität hinzufügen
     };
 
     // Behandle Aufgaben ohne Dauer (sofort geplant für Heute)
@@ -219,7 +200,7 @@ function scheduleFlexibleTask(task, currentSchedule) {
 }
 
 /**
- * Berechnet das Zieldatum für fixe Aufgaben (Deadlines, Fixe Termine).
+ * Berechnet das Zieldatum für fixe Aufgaben (Deadlines, Fixe Termine). (Manuell Geplant entfernt)
  */
 function calculateFixedTaskDates(tasks) {
     const today = normalizeDate();
@@ -227,7 +208,9 @@ function calculateFixedTaskDates(tasks) {
     tasks.forEach(task => {
         const duration = getOriginalTotalDuration(task);
 
-        // Fall 1: Fixer Termin
+        // Fall 1: Manuell gepinnt (ENTFERNT)
+
+        // Fall 2: Fixer Termin
         if (task.type === 'Fixer Termin' && task.fixedDate) {
             const fixedDate = parseDateString(task.fixedDate);
             if (fixedDate) {
@@ -241,13 +224,11 @@ function calculateFixedTaskDates(tasks) {
             return;
         }
 
-        // Fall 2: Deadline (Versuche Puffer einzubauen)
+        // Fall 3: Deadline (Versuche Puffer einzubauen)
         if (task.type === 'Deadline' && task.deadlineDate) {
             const originalDeadline = parseDateString(task.deadlineDate);
             if (originalDeadline) {
                 // Berechne das späteste Startdatum (Deadline minus Dauer)
-                // HINWEIS: Die Logik verwendet weiterhin volle Tage als Puffer für Einfachheit.
-                // Die Uhrzeit der Deadline wird primär zur Anzeige und Sortierung genutzt.
                 const bufferedDeadline = new Date(originalDeadline);
                 const bufferInDays = Math.ceil(duration);
                 bufferedDeadline.setDate(originalDeadline.getDate() - bufferInDays);
@@ -268,7 +249,7 @@ function calculateFixedTaskDates(tasks) {
 
 /**
  * Erstellt Schedule Items für fixe Aufgaben.
- * Übernimmt Uhrzeit (fixedTime, deadlineTime).
+ * Übernimmt Uhrzeit (fixedTime).
  */
 function scheduleFixedTasks(tasks, currentSchedule) {
     tasks.forEach(task => {
@@ -280,13 +261,13 @@ function scheduleFixedTasks(tasks, currentSchedule) {
             plannedDate: task.tempPlannedDate || null,
             scheduledDuration: getOriginalTotalDuration(task),
             deadlineDate: task.deadlineDate,
-            deadlineTime: task.deadlineTime || null, // NEU: Deadline Uhrzeit
             fixedDate: task.fixedDate,
             fixedTime: task.fixedTime || null,
+            // isManuallyScheduled entfernt
             assignedTo: task.assignedTo,
             notes: task.notes,
             location: task.location,
-            priority: task.priority || 3
+            priority: task.priority || 3 // NEU: Priorität hinzufügen
         };
         currentSchedule.push(newItem);
     });
@@ -298,6 +279,7 @@ function scheduleFixedTasks(tasks, currentSchedule) {
  */
 export function recalculateSchedule() {
     // 1. Vorbereitung
+    // Logik zum Zurücksetzen von autoPriority/isManuallyScheduled entfernt.
     const activeTasks = state.tasks.filter(t => !t.completed);
 
     // 2. Aufgaben in priorisierte und andere aufteilen (Filterlogik)
@@ -330,6 +312,7 @@ export function recalculateSchedule() {
 
     // 3. Planungs-Subroutine
     const planTaskSet = (tasksToPlan, schedule) => {
+        // GEÄNDERT: Filterung angepasst
         // Hierarchie 1 & 2: Termine und Deadlines
         let fixed = tasksToPlan.filter(t => t.type === 'Fixer Termin' || t.type === 'Deadline');
         // Hierarchie 3, 4, 5: Flexible Aufgaben
@@ -343,7 +326,7 @@ export function recalculateSchedule() {
             if (a.type === 'Fixer Termin' && b.type === 'Deadline') return -1;
             if (b.type === 'Fixer Termin' && a.type === 'Deadline') return 1;
 
-            // Regel 2: Wenn Typ gleich ist, sortiere nach Datum
+            // Regel 2: Wenn Typ gleich ist, sortiere nach Datum/Zeit
             const dateA = parseDateString(a.tempPlannedDate);
             const dateB = parseDateString(b.tempPlannedDate);
             if (!dateA) return 1;
@@ -353,30 +336,18 @@ export function recalculateSchedule() {
                 return dateA.getTime() - dateB.getTime();
             }
             
-            // Regel 3: Wenn das Datum gleich ist, sortiere nach Uhrzeit
-            // Wir nutzen die jeweilige Zeit (fixedTime oder deadlineTime)
-            let timeA = "00:00";
-            let timeB = "00:00";
-
-            // Da Regel 1 bereits Typenunterschiede behandelt hat, sind hier die Typen gleich.
-            if (a.type === 'Fixer Termin') {
-                timeA = a.fixedTime || "00:00";
-                timeB = b.fixedTime || "00:00";
-            } else if (a.type === 'Deadline') {
-                // Bei Deadlines: Mit Zeit vor Ohne Zeit (sortiert sie früher am Tag).
-                const dlTimeA = a.deadlineTime;
-                const dlTimeB = b.deadlineTime;
-                if (dlTimeA && !dlTimeB) return -1;
-                if (dlTimeB && !dlTimeA) return 1;
-                timeA = dlTimeA || "00:00";
-                timeB = dlTimeB || "00:00";
+            // Wenn das Datum gleich ist, sortiere nach Uhrzeit (nur wenn beide Fixe Termine sind)
+            if (a.type === 'Fixer Termin' && b.type === 'Fixer Termin') {
+                const timeA = a.fixedTime || "00:00";
+                const timeB = b.fixedTime || "00:00";
+                return timeA.localeCompare(timeB);
             }
             
-            return timeA.localeCompare(timeB);
+            return 0;
         });
         scheduleFixedTasks(fixed, schedule);
 
-        // Sortierung der Flexiblen Aufgaben
+        // GEÄNDERT: Sortierung der Flexiblen Aufgaben
         flexible.sort(sortTasksByPriority);
         
         flexible.forEach(task => scheduleFlexibleTask(task, schedule));
@@ -390,105 +361,7 @@ export function recalculateSchedule() {
     // 5. Aufräumen und State aktualisieren
     activeTasks.forEach(t => delete t.tempPlannedDate);
     state.schedule = newSchedule;
-    // WICHTIG: Die Berechnung der exakten Zeiten erfolgt NICHT hier, sondern in main.js nach diesem Aufruf.
 }
-
-
-/**
- * NEU: Berechnet die exakten Start- und Endzeiten für den Schedule.
- * Muss NACH recalculateSchedule aufgerufen werden.
- */
-export function calculateExactTimes(schedule) {
-    // Setup
-    const today = normalizeDate();
-    const now = new Date();
-    const nowMins = now.getHours() * 60 + now.getMinutes();
-
-    // Track usage of slots per day. Key: DateString, Value: Array of {startMins, endMins}
-    const usedSlots = {};
-
-    // Iterate schedule items (they are already sorted correctly by date and priority from recalculateSchedule)
-    for (const item of schedule) {
-        // Reset previous calculations
-        delete item.calculatedStartTime;
-        delete item.calculatedEndTime;
-
-        if (!item.plannedDate) continue;
-
-        const date = parseDateString(item.plannedDate);
-        const dayName = getDayOfWeek(date);
-        // Hole die definierten Arbeitszeitfenster für diesen Tag
-        const availableSlots = (state.settings.dailyTimeSlots && state.settings.dailyTimeSlots[dayName]) || [];
-        const durationMins = Math.round(item.scheduledDuration * 60);
-
-        if (durationMins === 0) continue;
-
-        // Initialisiere Used Slots für den Tag, falls noch nicht geschehen
-        if (!usedSlots[item.plannedDate]) usedSlots[item.plannedDate] = [];
-        const dayUsedSlots = usedSlots[item.plannedDate];
-
-        // Behandle Fixe Termine zuerst (sie blockieren Zeit, auch außerhalb der definierten Arbeitszeiten)
-        if (item.type === 'Fixer Termin' && item.fixedTime) {
-             const startMins = timeToMins(item.fixedTime);
-             const endMins = startMins + durationMins;
-             item.calculatedStartTime = item.fixedTime;
-             item.calculatedEndTime = minsToTime(endMins);
-             // Füge den Slot hinzu und halte die Liste sortiert
-             dayUsedSlots.push({startMins, endMins});
-             dayUsedSlots.sort((a,b) => a.startMins - b.startMins);
-             continue;
-        }
-
-        // Behandle Flexible/Deadline Aufgaben: Finde die nächste freie Lücke in den Arbeitszeitfenstern
-        let placed = false;
-        for (const slot of availableSlots) {
-            let slotStart = timeToMins(slot.start);
-            const slotEnd = timeToMins(slot.end);
-
-            // Adjust start time if it's today (or past) and the slot started before now
-            // Wir prüfen auf <= today.getTime(), da überfällige Aufgaben auch für "Heute" geplant werden.
-            if (date.getTime() <= today.getTime() && slotStart < nowMins) {
-                slotStart = nowMins;
-            }
-
-            // Finde die nächste freie Lücke innerhalb dieses Slots
-            let currentPos = slotStart;
-            while (currentPos < slotEnd) {
-                // Prüfe auf Überschneidung mit bereits genutzten Slots (z.B. durch fixe Termine oder vorherige Aufgaben)
-                const overlap = dayUsedSlots.find(used => currentPos >= used.startMins && currentPos < used.endMins);
-
-                if (overlap) {
-                    // Springe zum Ende des blockierten Slots
-                    currentPos = overlap.endMins;
-                    continue;
-                }
-
-                // Gefunden: Eine Lücke startet bei currentPos. Wie lang ist sie?
-                // Sie dauert bis zum Ende des Arbeitszeitfensters ODER bis zum Start des nächsten genutzten Slots.
-                const nextUsed = dayUsedSlots.find(used => used.startMins > currentPos);
-                const gapEnd = Math.min(slotEnd, nextUsed ? nextUsed.startMins : Infinity);
-
-                if (gapEnd - currentPos >= durationMins) {
-                    // Es passt! Plane das Item hier ein.
-                    const endMins = currentPos + durationMins;
-                    item.calculatedStartTime = minsToTime(currentPos);
-                    item.calculatedEndTime = minsToTime(endMins);
-                    // Blockiere diesen Zeitraum
-                    dayUsedSlots.push({startMins: currentPos, endMins});
-                    dayUsedSlots.sort((a,b) => a.startMins - b.startMins);
-                    placed = true;
-                    break; // Verlasse die innere Schleife (while)
-                } else {
-                    // Lücke zu klein, springe zum Ende der Lücke (was dem nächsten genutzten Slot entspricht oder dem Ende des Arbeitsfensters)
-                    currentPos = gapEnd;
-                }
-            }
-            if (placed) break; // Verlasse die äußere Schleife (for slot of availableSlots)
-        }
-        // Da die Kapazitätsplanung (recalculateSchedule) zuerst läuft, sollte immer ein Platz gefunden werden.
-    }
-}
-
 
 
 // --- Aktionen ---
@@ -500,18 +373,19 @@ export async function toggleTaskCompleted(taskId, isCompleted) {
         // Setze oder entferne das Fertigstellungsdatum
         task.completedAt = isCompleted ? new Date().toISOString() : null;
         
+        // Manuelle Planung (ENTFERNT)
+
         // Speichere die Änderung in der Datenbank
         await saveTaskDefinition(task);
 
         // Berechne den Zeitplan neu, damit die Aufgabe aus der Planung verschwindet/wieder auftaucht
         recalculateSchedule();
-        calculateExactTimes(state.schedule); // NEU
     }
 }
 
 /**
  * Aktualisiert Details einer Aufgabe (aus dem Edit-Modal).
- * Behandelt Typänderungen, Besitzerwechsel, Uhrzeiten (inkl. Deadline Time) und Priorität.
+ * Behandelt Typänderungen, Besitzerwechsel, Uhrzeiten und Priorität.
  */
 export async function updateTaskDetails(taskId, updatedDetails) {
     const task = state.tasks.find(t => t.id === taskId);
@@ -539,7 +413,7 @@ export async function updateTaskDetails(taskId, updatedDetails) {
         task.ownerId = updatedDetails.ownerId;
     }
 
-    // Aktualisiere Priorität
+    // NEU: Aktualisiere Priorität
     if (updatedDetails.priority !== undefined) {
         task.priority = updatedDetails.priority;
     }
@@ -549,6 +423,8 @@ export async function updateTaskDetails(taskId, updatedDetails) {
     task.location = updatedDetails.location || null;
     task.type = newType;
 
+    // Setze manuellen Status zurück (ENTFERNT)
+
     // Behandle Typänderung - Lösche Felder des alten Typs
     if (oldType !== newType) {
         if (oldType === 'Vorteil & Dauer') {
@@ -557,7 +433,6 @@ export async function updateTaskDetails(taskId, updatedDetails) {
         } else if (oldType === 'Deadline') {
             delete task.deadlineDate;
             delete task.deadlineDuration;
-            delete task.deadlineTime; // NEU: Lösche Deadline Time
         } else if (oldType === 'Fixer Termin') {
             delete task.fixedDate;
             delete task.fixedDuration;
@@ -572,9 +447,6 @@ export async function updateTaskDetails(taskId, updatedDetails) {
     } else if (task.type === 'Deadline') {
         if (updatedDetails.deadlineDate !== undefined) task.deadlineDate = updatedDetails.deadlineDate;
         if (updatedDetails.deadlineDuration !== undefined) task.deadlineDuration = updatedDetails.deadlineDuration;
-        // NEU: Aktualisiere Deadline Uhrzeit
-        if (updatedDetails.deadlineTime !== undefined) task.deadlineTime = updatedDetails.deadlineTime;
-
     } else if (task.type === 'Fixer Termin') {
         if (updatedDetails.fixedDate !== undefined) task.fixedDate = updatedDetails.fixedDate;
         if (updatedDetails.fixedDuration !== undefined) task.fixedDuration = updatedDetails.fixedDuration;
@@ -586,12 +458,10 @@ export async function updateTaskDetails(taskId, updatedDetails) {
     await saveTaskDefinition(task);
     // 3. Berechne Schedule sofort neu für Responsivität
     recalculateSchedule();
-    // NEU: Berechne Zeiten neu
-    calculateExactTimes(state.schedule);
 }
 
 /**
- * Ändert die Priorität einer Aufgabe (über die Pfeile).
+ * NEU: Ändert die Priorität einer Aufgabe (über die Pfeile).
  */
 export async function changeTaskPriority(taskId, direction) {
     const task = state.tasks.find(t => t.id === taskId);
@@ -616,6 +486,8 @@ export async function changeTaskPriority(taskId, direction) {
         // Speichern und neu berechnen
         await saveTaskDefinition(task);
         recalculateSchedule();
-        calculateExactTimes(state.schedule); // NEU
     }
 }
+
+
+// ENTFERNT: handleTaskDrop Logik.
