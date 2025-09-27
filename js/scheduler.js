@@ -19,7 +19,7 @@ export function getOriginalTotalDuration(task) {
 }
 
 /**
- * GEÄNDERT: Berechnet die verfügbaren Stunden für einen Tag.
+ * Berechnet die verfügbaren Stunden für einen Tag.
  * Wenn es Heute ist, wird die bereits vergangene Zeit berücksichtigt.
  */
 export function getDailyAvailableHours(date) {
@@ -70,51 +70,42 @@ function getConsumedHoursForDay(date, currentSchedule) {
     }, 0);
 }
 
-// GEÄNDERT: Sortierlogik berücksichtigt jetzt Uhrzeiten bei Fixen Terminen.
+// GEÄNDERT: Sortierlogik für flexible Aufgaben (Priorität > Finanzieller Vorteil).
 export function sortTasksByPriority(taskA, taskB) {
+    // HINWEIS: Diese Funktion wird nur für flexible Aufgaben (Typ "Vorteil & Dauer") verwendet.
+    // Fixe Termine und Deadlines werden separat behandelt.
+
+    // Hierarchie 3: Prioritäten (5=hoch, 1=niedrig)
+    const prioA = taskA.priority || 3;
+    const prioB = taskB.priority || 3;
+
+    if (prioA !== prioB) {
+        return prioB - prioA; // Höhere Zahl (höhere Priorität) zuerst
+    }
+
+    // Hierarchie 4 & 5: Finanzieller Vorteil (wenn Prioritäten gleich sind)
     const getBenefitPerHour = (task) => {
         const benefit = parseFloat(task.financialBenefit) || 0;
         const duration = getOriginalTotalDuration(task);
         return (benefit > 0 && duration > 0) ? (benefit / duration) : 0;
     };
 
-    // Regel 1: Fixe Termine immer zuerst
-    if (taskA.type === 'Fixer Termin' && taskB.type !== 'Fixer Termin') return -1;
-    if (taskB.type === 'Fixer Termin' && taskA.type !== 'Fixer Termin') return 1;
+    const benefitA = getBenefitPerHour(taskA);
+    const benefitB = getBenefitPerHour(taskB);
 
-    // Regel 2: Deadlines vor Vorteilsaufgaben
-    if (taskA.type === 'Deadline' && taskB.type !== 'Deadline') return -1;
-    if (taskB.type === 'Deadline' && taskA.type !== 'Deadline') return 1;
-
-     // Regel 3: Bei gleichen Typen (Fix/Deadline) nach Datum sortieren
-     if (taskA.type === taskB.type && (taskA.type === 'Fixer Termin' || taskA.type === 'Deadline')) {
-         // Nutze das temporär berechnete Plandatum für die Sortierung
-         if (taskA.tempPlannedDate && taskB.tempPlannedDate) {
-            const dateA = parseDateString(taskA.tempPlannedDate);
-            const dateB = parseDateString(taskB.tempPlannedDate);
-            if (dateA && dateB) {
-                // NEU: Wenn Datum gleich ist und Fixer Termin, sortiere nach Uhrzeit
-                if (dateA.getTime() === dateB.getTime() && taskA.type === 'Fixer Termin') {
-                    const timeA = taskA.fixedTime || "00:00";
-                    const timeB = taskB.fixedTime || "00:00";
-                    return timeA.localeCompare(timeB);
-                }
-                return dateA.getTime() - dateB.getTime();
-            }
-         }
-         return 0;
+    // Wenn calcPriority AUS ist, sortiere nur nach Existenz des Vorteils (Ja vor Nein)
+    if (!state.settings.calcPriority) {
+        if (benefitA > 0 && benefitB === 0) return -1;
+        if (benefitB > 0 && benefitA === 0) return 1;
+        return 0;
     }
 
-    // Regel 4: Wenn aktiviert, nach finanziellem Vorteil pro Stunde sortieren
-    if (state.settings.calcPriority) {
-        const benefitA = getBenefitPerHour(taskA);
-        const benefitB = getBenefitPerHour(taskB);
-
-        if (benefitA > 0 || benefitB > 0) {
-            return benefitB - benefitA; // Höherer Vorteil zuerst
-        }
+    // Wenn calcPriority AN ist, sortiere nach dem Wert des Vorteils/h
+    if (benefitA !== benefitB) {
+        return benefitB - benefitA; // Höherer Vorteil zuerst
     }
-    // Standard-Fallback (keine Änderung der Reihenfolge)
+    
+    // Standard-Fallback
     return 0;
 }
 
@@ -131,10 +122,11 @@ function scheduleFlexibleTask(task, currentSchedule) {
         type: task.type,
         financialBenefit: task.financialBenefit,
         estimatedDuration: task.estimatedDuration, // Wichtig für die Berechnung des Vorteils/h
-        isManuallyScheduled: false,
+        // isManuallyScheduled entfernt
         assignedTo: task.assignedTo,
         notes: task.notes,
-        location: task.location
+        location: task.location,
+        priority: task.priority || 3 // NEU: Priorität hinzufügen
     };
 
     // Behandle Aufgaben ohne Dauer (sofort geplant für Heute)
@@ -208,8 +200,7 @@ function scheduleFlexibleTask(task, currentSchedule) {
 }
 
 /**
- * Berechnet das Zieldatum für fixe Aufgaben (Deadlines, Fixe Termine, Manuell Geplant).
- * (Logik unverändert)
+ * Berechnet das Zieldatum für fixe Aufgaben (Deadlines, Fixe Termine). (Manuell Geplant entfernt)
  */
 function calculateFixedTaskDates(tasks) {
     const today = normalizeDate();
@@ -217,17 +208,7 @@ function calculateFixedTaskDates(tasks) {
     tasks.forEach(task => {
         const duration = getOriginalTotalDuration(task);
 
-        // Fall 1: Manuell gepinnt (hat höchste Priorität)
-        if (task.isManuallyScheduled && task.manualDate) {
-             const manualDate = parseDateString(task.manualDate);
-             // Wenn manuelles Datum in der Vergangenheit liegt, plane für Heute
-             if (manualDate && manualDate.getTime() < today.getTime()) {
-                 task.tempPlannedDate = formatDateToYYYYMMDD(today);
-             } else {
-                task.tempPlannedDate = task.manualDate;
-             }
-             return;
-        }
+        // Fall 1: Manuell gepinnt (ENTFERNT)
 
         // Fall 2: Fixer Termin
         if (task.type === 'Fixer Termin' && task.fixedDate) {
@@ -268,7 +249,7 @@ function calculateFixedTaskDates(tasks) {
 
 /**
  * Erstellt Schedule Items für fixe Aufgaben.
- * GEÄNDERT: Übernimmt Uhrzeit (fixedTime).
+ * Übernimmt Uhrzeit (fixedTime).
  */
 function scheduleFixedTasks(tasks, currentSchedule) {
     tasks.forEach(task => {
@@ -281,11 +262,12 @@ function scheduleFixedTasks(tasks, currentSchedule) {
             scheduledDuration: getOriginalTotalDuration(task),
             deadlineDate: task.deadlineDate,
             fixedDate: task.fixedDate,
-            fixedTime: task.fixedTime || null, // NEU: Übernehme Uhrzeit
-            isManuallyScheduled: !!task.isManuallyScheduled,
+            fixedTime: task.fixedTime || null,
+            // isManuallyScheduled entfernt
             assignedTo: task.assignedTo,
             notes: task.notes,
-            location: task.location
+            location: task.location,
+            priority: task.priority || 3 // NEU: Priorität hinzufügen
         };
         currentSchedule.push(newItem);
     });
@@ -297,16 +279,10 @@ function scheduleFixedTasks(tasks, currentSchedule) {
  */
 export function recalculateSchedule() {
     // 1. Vorbereitung
-    if (state.settings.autoPriority) {
-        state.tasks.forEach(t => {
-            t.isManuallyScheduled = false;
-            delete t.manualDate;
-        });
-    }
+    // Logik zum Zurücksetzen von autoPriority/isManuallyScheduled entfernt.
     const activeTasks = state.tasks.filter(t => !t.completed);
 
-    // 2. Aufgaben in priorisierte und andere aufteilen
-    // GEÄNDERT: Nutze prioritizedLocations (Array)
+    // 2. Aufgaben in priorisierte und andere aufteilen (Filterlogik)
     const { prioritizedLocations, prioritizedUserIds } = state.filters;
     const isFilterActive = prioritizedLocations.length > 0 || prioritizedUserIds.length > 0;
     const currentUserId = state.user ? state.user.uid : null;
@@ -336,12 +312,21 @@ export function recalculateSchedule() {
 
     // 3. Planungs-Subroutine
     const planTaskSet = (tasksToPlan, schedule) => {
-        let fixed = tasksToPlan.filter(t => t.type === 'Fixer Termin' || t.type === 'Deadline' || t.isManuallyScheduled);
-        let flexible = tasksToPlan.filter(t => t.type === 'Vorteil & Dauer' && !t.isManuallyScheduled);
+        // GEÄNDERT: Filterung angepasst
+        // Hierarchie 1 & 2: Termine und Deadlines
+        let fixed = tasksToPlan.filter(t => t.type === 'Fixer Termin' || t.type === 'Deadline');
+        // Hierarchie 3, 4, 5: Flexible Aufgaben
+        let flexible = tasksToPlan.filter(t => t.type === 'Vorteil & Dauer');
 
         fixed = calculateFixedTaskDates(fixed);
-        // GEÄNDERT: Sortierung berücksichtigt jetzt Uhrzeit bei Fixen Terminen
+        
+        // GEÄNDERT: Sortierung der Fixen Aufgaben (Strikte Hierarchie: Termin > Deadline > Datum/Zeit)
         fixed.sort((a, b) => {
+            // Regel 1: Termine vor Deadlines
+            if (a.type === 'Fixer Termin' && b.type === 'Deadline') return -1;
+            if (b.type === 'Fixer Termin' && a.type === 'Deadline') return 1;
+
+            // Regel 2: Wenn Typ gleich ist, sortiere nach Datum/Zeit
             const dateA = parseDateString(a.tempPlannedDate);
             const dateB = parseDateString(b.tempPlannedDate);
             if (!dateA) return 1;
@@ -362,9 +347,9 @@ export function recalculateSchedule() {
         });
         scheduleFixedTasks(fixed, schedule);
 
-        if (state.settings.autoPriority) {
-            flexible.sort(sortTasksByPriority);
-        }
+        // GEÄNDERT: Sortierung der Flexiblen Aufgaben
+        flexible.sort(sortTasksByPriority);
+        
         flexible.forEach(task => scheduleFlexibleTask(task, schedule));
     };
 
@@ -388,9 +373,7 @@ export async function toggleTaskCompleted(taskId, isCompleted) {
         // Setze oder entferne das Fertigstellungsdatum
         task.completedAt = isCompleted ? new Date().toISOString() : null;
         
-        // Setze manuelle Planung zurück, da die Aufgabe (vorerst) aus dem Plan entfernt wird
-        task.isManuallyScheduled = false;
-        delete task.manualDate;
+        // Manuelle Planung (ENTFERNT)
 
         // Speichere die Änderung in der Datenbank
         await saveTaskDefinition(task);
@@ -402,7 +385,7 @@ export async function toggleTaskCompleted(taskId, isCompleted) {
 
 /**
  * Aktualisiert Details einer Aufgabe (aus dem Edit-Modal).
- * GEÄNDERT: Behandelt Typänderungen, Besitzerwechsel und Uhrzeiten.
+ * Behandelt Typänderungen, Besitzerwechsel, Uhrzeiten und Priorität.
  */
 export async function updateTaskDetails(taskId, updatedDetails) {
     const task = state.tasks.find(t => t.id === taskId);
@@ -424,10 +407,15 @@ export async function updateTaskDetails(taskId, updatedDetails) {
     if (updatedDetails.assignedTo !== undefined) {
         task.assignedTo = updatedDetails.assignedTo;
     }
-    // NEU: Besitzerwechsel (falls durch UI Logik gesetzt)
+    // Besitzerwechsel (falls durch UI Logik gesetzt)
     if (updatedDetails.ownerId !== undefined && updatedDetails.ownerId !== task.ownerId) {
         console.log(`Transferring ownership to ${updatedDetails.ownerId}`);
         task.ownerId = updatedDetails.ownerId;
+    }
+
+    // NEU: Aktualisiere Priorität
+    if (updatedDetails.priority !== undefined) {
+        task.priority = updatedDetails.priority;
     }
 
     // Wir speichern null, wenn das Feld leer ist.
@@ -435,11 +423,9 @@ export async function updateTaskDetails(taskId, updatedDetails) {
     task.location = updatedDetails.location || null;
     task.type = newType;
 
-    // Setze manuellen Status zurück (Änderungen erzwingen Neuplanung)
-    task.isManuallyScheduled = false;
-    delete task.manualDate;
+    // Setze manuellen Status zurück (ENTFERNT)
 
-    // NEU: Behandle Typänderung - Lösche Felder des alten Typs
+    // Behandle Typänderung - Lösche Felder des alten Typs
     if (oldType !== newType) {
         if (oldType === 'Vorteil & Dauer') {
             delete task.estimatedDuration;
@@ -450,7 +436,7 @@ export async function updateTaskDetails(taskId, updatedDetails) {
         } else if (oldType === 'Fixer Termin') {
             delete task.fixedDate;
             delete task.fixedDuration;
-            delete task.fixedTime; // NEU
+            delete task.fixedTime;
         }
     }
 
@@ -464,7 +450,7 @@ export async function updateTaskDetails(taskId, updatedDetails) {
     } else if (task.type === 'Fixer Termin') {
         if (updatedDetails.fixedDate !== undefined) task.fixedDate = updatedDetails.fixedDate;
         if (updatedDetails.fixedDuration !== undefined) task.fixedDuration = updatedDetails.fixedDuration;
-        // NEU: Aktualisiere Uhrzeit
+        // Aktualisiere Uhrzeit
         if (updatedDetails.fixedTime !== undefined) task.fixedTime = updatedDetails.fixedTime;
     }
 
@@ -474,7 +460,34 @@ export async function updateTaskDetails(taskId, updatedDetails) {
     recalculateSchedule();
 }
 
-// (handleTaskDrop Logik unverändert)
-export async function handleTaskDrop(draggedTaskId, dropTargetTaskId, insertBefore, newDate) {
-    // ... (unverändert)
+/**
+ * NEU: Ändert die Priorität einer Aufgabe (über die Pfeile).
+ */
+export async function changeTaskPriority(taskId, direction) {
+    const task = state.tasks.find(t => t.id === taskId);
+    if (!task) return;
+
+    // Nur flexible Aufgaben dürfen über die Pfeile geändert werden.
+    // Termine und Deadlines haben implizit eine höhere Priorität.
+    if (task.type !== 'Vorteil & Dauer') return;
+
+    const currentPriority = task.priority || 3;
+    let newPriority = currentPriority;
+
+    // Richtung 'up' erhöht den Wert (bis 5), 'down' verringert ihn (bis 1).
+    if (direction === 'up' && currentPriority < 5) {
+        newPriority++;
+    } else if (direction === 'down' && currentPriority > 1) {
+        newPriority--;
+    }
+
+    if (newPriority !== currentPriority) {
+        task.priority = newPriority;
+        // Speichern und neu berechnen
+        await saveTaskDefinition(task);
+        recalculateSchedule();
+    }
 }
+
+
+// ENTFERNT: handleTaskDrop Logik.
