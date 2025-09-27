@@ -1,12 +1,14 @@
 // js/main.js
 import { state } from './state.js';
+// GEÄNDERT: saveSettings importiert.
 import { initializeDataListeners, saveSettings, saveTaskDefinition } from './database.js';
 import { recalculateSchedule } from './scheduler.js';
 import { renderApp } from './ui-render.js';
+// GEÄNDERT: initializeUIComponents hinzugefügt (ersetzt initializeCollaborationUI).
 import {
     openModal, closeModal, setActiveTaskType, clearInputs, updateAndGetSettingsFromModal,
     closeEditModal, handleSaveEditedTask, handleDeleteTask, handleClearCompleted, attachFilterInteractions,
-    initializeCollaborationUI // NEU: Initialisierung der Kollaborations-UI
+    initializeUIComponents
 } from './ui-actions.js';
 import { normalizeDate, calculateDecimalHours } from './utils.js';
 import { initializeAuth, showLoadingScreen, showAppScreen } from './auth.js';
@@ -37,12 +39,13 @@ function onLoginSuccess() {
         isInitialized = true;
     }
     
-    // NEU: Füge den aktuellen Benutzer zum State für die neue Aufgabe hinzu (Standard)
+    // Füge den aktuellen Benutzer zum State für die neue Aufgabe hinzu (Standard)
     if (state.userProfile && state.newTaskAssignment.length === 0) {
         state.newTaskAssignment.push(state.userProfile);
         // Rendere die UI, falls sie bereits initialisiert wurde
         if (isInitialized) {
-            initializeCollaborationUI();
+            // GEÄNDERT: Ruft die generalisierte Initialisierung auf
+            initializeUIComponents();
         }
     }
 }
@@ -89,8 +92,8 @@ function initializeUI() {
     attachEventListeners();
     // Initialisiere Filter-Interaktionen
     attachFilterInteractions(); 
-    // NEU: Initialisiere die Kollaborations-UI für das "Neue Aufgabe"-Formular
-    initializeCollaborationUI();
+    // GEÄNDERT: Initialisiere die Komponenten (ersetzt initializeCollaborationUI)
+    initializeUIComponents();
     startDayChangeChecker();
 }
 
@@ -134,23 +137,10 @@ function attachEventListeners() {
     document.getElementById('saveTaskBtn').addEventListener('click', handleSaveEditedTask);
     document.getElementById('deleteTaskBtn').addEventListener('click', handleDeleteTask); 
 
-    // Klick außerhalb des Modals (Overlay-Klick)
-    // GEÄNDERT: Entfernt, da vom Benutzer als nervig empfunden. Modals müssen jetzt explizit geschlossen werden.
-    /*
-    document.getElementById('settingsModal').addEventListener('click', (event) => {
-        if (event.target === event.currentTarget) {
-            // closeModal();
-        }
-    });
-    document.getElementById('editTaskModal').addEventListener('click', (event) => {
-        if (event.target === event.currentTarget) {
-            // closeEditModal();
-        }
-    });
-    */
+    // Klick außerhalb des Modals (Overlay-Klick) (ENTFERNT)
 
     // Global actions
-    document.getElementById('toggleDragDrop').addEventListener('change', handleToggleDragDrop);
+    // ENTFERNT: toggleDragDrop Listener
     document.getElementById('clearCompletedBtn').addEventListener('click', handleClearCompleted);
 
     // Task creation
@@ -172,9 +162,7 @@ function attachEventListeners() {
 
 // --- Handlers ---
 
-async function handleToggleDragDrop(event) {
-    // ... (unverändert, Logik ist korrekt)
-}
+// handleToggleDragDrop entfernt.
 
 
 async function handleAddTask() {
@@ -188,7 +176,7 @@ async function handleAddTask() {
     const notes = document.getElementById('newNotesInput').value.trim();
     const location = document.getElementById('newLocationSelect').value;
 
-    // NEU: Lese Zuweisungen aus dem State
+    // Lese Zuweisungen aus dem State
     // Stelle sicher, dass mindestens der aktuelle Benutzer enthalten ist (Fallback)
     const assignedTo = state.newTaskAssignment.map(u => u.uid);
     if (state.user && (!assignedTo.includes(state.user.uid))) {
@@ -196,15 +184,19 @@ async function handleAddTask() {
         assignedTo.push(state.user.uid);
     }
 
+    // NEU: Lese Priorität aus dem State (wird durch UI-Aktionen gesetzt)
+    const priority = state.newTaskPriority;
+
     // Erstelle die Aufgabendefinition
     const taskDefinition = {
         description: description,
         type: state.activeTaskType,
         completed: false,
-        isManuallyScheduled: false,
+        // isManuallyScheduled entfernt
         notes: notes || null,
         location: location || null,
-        assignedTo: assignedTo
+        assignedTo: assignedTo,
+        priority: priority // NEU: Priorität hinzufügen
         // ownerId wird automatisch in database.js gesetzt
     };
 
@@ -230,7 +222,7 @@ async function handleAddTask() {
             if (!fixedDate) throw new Error("Bitte gib ein Datum für den fixen Termin ein!");
             taskDefinition.fixedDate = fixedDate;
 
-            // NEU: Lese die Uhrzeit (optional)
+            // Lese die Uhrzeit (optional)
             const fixedTime = document.getElementById('fixed-time').value;
             taskDefinition.fixedTime = fixedTime || null;
 
@@ -244,7 +236,7 @@ async function handleAddTask() {
 
         if (newId) {
             // Der Firestore Listener (handleDataUpdate) wird die neue Aufgabe erhalten und alles aktualisieren.
-            // Nur Inputs leeren (clearInputs() setzt auch die Zuweisungen zurück)
+            // Nur Inputs leeren (clearInputs() setzt auch Zuweisungen und Priorität zurück)
             clearInputs();
         } else {
             throw new Error("Konnte Aufgabe nicht in der Datenbank speichern.");
@@ -255,6 +247,19 @@ async function handleAddTask() {
     }
 }
 
+// GEÄNDERT: Implementierung hinzugefügt (war vorher leer)
 async function handleSaveSettings() {
-    // ... (unverändert, Logik ist korrekt)
+    const newSettings = updateAndGetSettingsFromModal();
+    
+    try {
+        // Speichere in der Datenbank (Der Listener wird das Update triggern)
+        // Die Validierung (z.B. Limits der Textlänge) erfolgt in saveSettings -> validateSettings.
+        await saveSettings(newSettings);
+
+        // Wir verlassen uns auf den Listener (handleDataUpdate), um den State zu aktualisieren und neu zu rendern.
+        
+        closeModal();
+    } catch (error) {
+        alert("Fehler beim Speichern der Einstellungen: " + error.message);
+    }
 }
