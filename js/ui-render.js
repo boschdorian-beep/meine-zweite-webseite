@@ -450,53 +450,39 @@ function createScheduleItemElement(item, assignedShortNames = []) {
     // Manuell geplante Markierung (ENTFERNT)
 
 
-    // Finales HTML Layout
-    // GEÄNDERT: Layout angepasst, um Beschreibungstoggle und Notizen unterzubringen.
-    // Das task-item verwendet `items-start` (in CSS). Checkbox benötigt mt-0.5 für vertikale Ausrichtung.
-    // --- Finales HTML Layout (NEUE Spaltenstruktur) ---
-    // Das Layout ist in zwei Hauptteile geteilt:
-    // 1. Linker Teil (flex-grow): Checkbox und Beschreibung. Nimmt den meisten Platz ein.
-    // 2. Rechter Teil (flex-shrink-0): Metadaten in Spalten mit fester Breite.
+    // --- Finales HTML Layout (NEUE, KORRIGIERTE Spaltenstruktur) ---
     itemElement.innerHTML = `
         ${locationMarker}
-        <div class="flex flex-col flex-grow w-full">
-            <div class="flex items-center w-full">
-                <input type="checkbox" data-task-id="${item.taskId}" class="task-checkbox form-checkbox h-5 w-5 text-green-600 rounded mr-3 cursor-pointer mt-0.5">
-                
-                <div class="task-content flex items-center text-lg cursor-pointer hover:text-blue-600 transition duration-150">
-                    ${descriptionContentHtml}
-                    ${descriptionToggle}
-                    ${timeDisplay}
-                    ${notesToggle}
         <div class="flex flex-col flex-grow min-w-0"> 
-            <div class="flex items-center justify-between w-full">
-                <!-- Linker Teil: Beschreibung -->
+            <div class="flex items-start justify-between w-full">
                 <div class="flex items-center flex-grow min-w-0 mr-4">
-                    <input type="checkbox" data-task-id="${item.taskId}" class="task-checkbox form-checkbox h-5 w-5 text-green-600 rounded mr-3 cursor-pointer flex-shrink-0">
+                    <input type="checkbox" data-task-id="${item.taskId}" class="task-checkbox form-checkbox h-5 w-5 text-green-600 rounded mr-3 cursor-pointer flex-shrink-0 mt-1">
                     
-                    <div class="task-content flex items-center text-lg cursor-pointer hover:text-blue-600 transition duration-150 min-w-0">
-                        <div class="truncate"> 
-                            ${descriptionContentHtml}
+                    <div class="task-content text-lg cursor-pointer hover:text-blue-600 transition duration-150 min-w-0">
+                        <div class="flex items-center">
+                             <span class="task-description-short truncate"></span>
+                             ${descriptionToggle}
+                             ${timeDisplay}
+                             ${notesToggle}
                         </div>
-                        ${descriptionToggle}
-                        ${timeDisplay}
-                        ${notesToggle}
                     </div>
                 </div>
 
-                ${priorityArrowsHtml}
-                ${durationDisplay}
-                ${benefitDisplay}
-                ${item.deadlineDate ? `<span class="ml-2 text-sm text-red-500">Deadline: ${formatDateLocalized(parseDateString(item.deadlineDate))}</span>` : ''}
-                ${plannedDateDisplay}
-                ${assignedUsersDisplay}
-                <!-- Rechter Teil: Metadaten-Spalten -->
-                <div class="flex items-center space-x-4 flex-shrink-0">
-                    <div class="w-20 text-center" title="Zugewiesen an">${assignedUsersDisplay}</div>
-                    <div class="w-20 text-right text-gray-500" title="Dauer">${durationDisplay} ${benefitDisplay}</div>
+                <div class="flex items-center space-x-4 flex-shrink-0 mt-1">
+                    
+                    <div class="w-20 text-center" title="Zugewiesen an">
+                        ${assignedUsersDisplay}
+                    </div>
+
+                    <div class="w-24 text-right text-sm text-gray-500" title="Dauer">
+                        ${durationDisplay}
+                        ${benefitDisplay}
+                    </div>
+
                     <div class="w-24 flex justify-center">${priorityArrowsHtml}</div>
-                    <div class="w-32 text-right text-red-500" title="Fälligkeit">
-                        ${item.deadlineDate ? `<span>${formatDateLocalized(parseDateString(item.deadlineDate))}</span>` : ''}
+
+                    <div class="w-32 text-right text-sm">
+                        ${item.deadlineDate ? `<span class="text-red-500 font-semibold">Deadline: ${formatDateLocalized(parseDateString(item.deadlineDate))}</span>` : ''}
                         ${plannedDateDisplay}
                     </div>
                 </div>
@@ -587,24 +573,18 @@ function createCompletedTaskElement(task, assignedShortNames = []) {
 
     taskElement.innerHTML = `
         ${locationMarker}
-        <div class="flex items-center flex-grow">
-            <input type="checkbox" data-task-id="${task.id}" checked class="task-checkbox form-checkbox h-5 w-5 text-green-600 rounded mr-3 cursor-pointer">
-            <span class="task-content text-gray-800 text-lg">${truncated}</span>
-            ${priorityDisplayHtml}
-            ${durationDisplay}
-            ${assignedUsersDisplay}
         <div class="flex items-center justify-between flex-grow w-full">
             <!-- Linker Teil -->
-            <div class="flex items-center flex-grow mr-4">
+            <div class="flex items-center flex-grow min-w-0 mr-4">
                 <input type="checkbox" data-task-id="${task.id}" checked class="task-checkbox form-checkbox h-5 w-5 text-green-600 rounded mr-3 cursor-pointer">
-                <span class="task-content text-gray-800 text-lg">${truncated}</span>
+                <span class="task-content text-gray-800 text-lg truncate">${truncated}</span>
             </div>
             <!-- Rechter Teil (Metadaten) -->
             <div class="flex items-center space-x-4 flex-shrink-0 text-gray-500">
-                <div class="w-20 text-center">${assignedUsersDisplay}</div>
-                <div class="w-20 text-right">${durationDisplay}</div>
+                <div class="w-20 text-center" title="Zugewiesen an">${assignedUsersDisplay}</div>
+                <div class="w-24 text-right text-sm" title="Dauer">${durationDisplay}</div>
                 <div class="w-24 flex justify-center">${priorityDisplayHtml}</div>
-                <div class="w-32"></div> <!-- Platzhalter für Konsistenz -->
+                <div class="w-32 text-right text-sm"></div> <!-- Platzhalter für Konsistenz -->
             </div>
         </div>
     `;
