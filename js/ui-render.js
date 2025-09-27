@@ -23,7 +23,7 @@ const elements = {
     futureAvailableTime: document.getElementById('futureAvailableTime'),
     dailyTimeslotsContainer: document.getElementById('dailyTimeslotsContainer'),
     calcPriorityCheckbox: document.getElementById('calcPriorityCheckbox'),
-    // NEU: Checkbox für exakte Zeiten
+    // Checkbox für exakte Zeiten
     showExactTimesCheckbox: document.getElementById('showExactTimesCheckbox'),
     // Datumsanzeige
     todayDateDisplay: document.getElementById('todayDateDisplay'),
@@ -307,7 +307,7 @@ function truncateText(text, maxLength) {
 
 /**
  * Erstellt das DOM Element für ein aktives Schedule Item.
- * GEÄNDERT: Neues Layout für Ausrichtung, zeigt berechnete Zeiten und Deadline Time an.
+ * GEÄNDERT: Komplett überarbeitet, um das CSS Grid Layout zu nutzen.
  */
 function createScheduleItemElement(item, assignedShortNames = []) {
     const itemElement = document.createElement('div');
@@ -334,9 +334,9 @@ function createScheduleItemElement(item, assignedShortNames = []) {
     itemElement.dataset.taskId = item.taskId;
     itemElement.dataset.scheduleId = item.scheduleId;
 
-    // --- Elemente definieren ---
+    // --- Elemente definieren (Inhalte für die Grid-Zellen) ---
 
-    // 1. Ortsmarkierung
+    // 1. Ortsmarkierung (Keine Grid-Zelle, absolut positioniert)
     let locationMarker = '';
     if (item.location) {
         const color = generateColorFromString(item.location);
@@ -348,12 +348,12 @@ function createScheduleItemElement(item, assignedShortNames = []) {
     let notesContentHtml = '';
     if (item.notes) {
         // Button zum Ein-/Ausklappen (Standardmäßig eingeklappt)
-        // GEÄNDERT: ml-2 hinzugefügt für etwas Abstand
+        // ml-2 für Abstand zum vorherigen Element im task-content
         notesToggle = `<button class="toggle-notes-btn ml-2 cursor-pointer hover:text-gray-700 transition duration-150 focus:outline-none" title="Notizen anzeigen/verbergen">
                             <i class="fas fa-chevron-down text-gray-500"></i>
                        </button>`;
-        // Inhalt (versteckt) - wird später als Element hinzugefügt für Sicherheit (textContent)
-        notesContentHtml = `<div class="task-notes-content hidden w-full"></div>`;
+        // Inhalt (versteckt) - wird später im expanded-container platziert
+        notesContentHtml = `<div class="task-notes-content hidden"></div>`;
     }
 
     // 3. Zugewiesene Benutzer (Kürzel)
@@ -399,17 +399,17 @@ function createScheduleItemElement(item, assignedShortNames = []) {
     let descriptionToggle = '';
     // Gekürzter Text (Standardmäßig sichtbar) - Span wird später befüllt.
     let descriptionContentHtml = `<span class="task-description-short"></span>`;
-    // Voller Text (Standardmäßig versteckt, nur wenn gekürzt)
+    // Voller Text (Standardmäßig versteckt, nur wenn gekürzt) - wird später im expanded-container platziert
     let fullDescriptionHtml = '';
 
     if (isTruncated) {
         // Button zum Umschalten
-        // GEÄNDERT: ml-2 hinzugefügt für etwas Abstand
+        // ml-2 für Abstand zum vorherigen Element im task-content
         descriptionToggle = `<button class="toggle-description-btn ml-2 cursor-pointer hover:text-gray-700 transition duration-150 focus:outline-none" title="Vollständigen Text anzeigen">
                                 <i class="fas fa-chevron-down text-gray-500"></i>
                              </button>`;
         // Der vollständige Text wird später sicher eingefügt. Suffix wird hier als Text hinzugefügt.
-        fullDescriptionHtml = `<div class="task-description-full hidden w-full">${suffix}</div>`;
+        fullDescriptionHtml = `<div class="task-description-full hidden">${suffix}</div>`;
     }
 
 
@@ -417,7 +417,6 @@ function createScheduleItemElement(item, assignedShortNames = []) {
 
     // Dauer
     const duration = getScheduleItemDuration(item);
-    // GEÄNDERT: Styling angepasst
     const durationDisplay = duration > 0 ? `<span class="text-sm text-gray-500">(${formatHoursMinutes(duration)})</span>` : '';
 
     // Finanzieller Vorteil
@@ -443,7 +442,7 @@ function createScheduleItemElement(item, assignedShortNames = []) {
         plannedDateDisplay = `<span class="text-sm text-gray-400">(${formatDateLocalized(itemPlannedDate)})</span>`;
     }
 
-    // Uhrzeit für Fixe Termine oder NEU: Berechnete Zeiten
+    // Uhrzeit für Fixe Termine oder Berechnete Zeiten
     let timeDisplay = '';
     
     // Priorität 1: Berechnete Zeiten (wenn aktiviert und vorhanden)
@@ -456,7 +455,7 @@ function createScheduleItemElement(item, assignedShortNames = []) {
         timeDisplay = `<span class="text-sm text-blue-500 font-semibold">@ ${item.fixedTime}</span>`;
     }
 
-    // Deadline Info (Datum und NEU: Uhrzeit)
+    // Deadline Info (Datum und Uhrzeit)
     let deadlineInfo = '';
     if (item.deadlineDate) {
         deadlineInfo = `<span class="text-sm text-red-500">Deadline: ${formatDateLocalized(parseDateString(item.deadlineDate))}`;
@@ -466,35 +465,40 @@ function createScheduleItemElement(item, assignedShortNames = []) {
         deadlineInfo += `</span>`;
     }
 
-
-    // Finales HTML Layout (Komplett neu strukturiert für Ausrichtung)
-    // Checkbox benötigt mt-0.5 für vertikale Ausrichtung mit dem Text (wegen items-start im .task-left-col).
-    itemElement.innerHTML = `
-        ${locationMarker}
-        
-        <div class="task-left-col">
-            <input type="checkbox" data-task-id="${item.taskId}" class="task-checkbox form-checkbox h-5 w-5 text-green-600 rounded mr-3 cursor-pointer mt-0.5">
-            
-            <div class="task-content">
-                <div class="task-content-header">
-                    ${descriptionContentHtml}
-                    ${descriptionToggle}
-                    ${notesToggle}
-                </div>
+    // NEU: Container für expandierbaren Inhalt (wenn vorhanden)
+    let expandedContainerHtml = '';
+    if (isTruncated || item.notes) {
+        expandedContainerHtml = `
+            <div class="task-expanded-container">
                 ${fullDescriptionHtml}
                 ${notesContentHtml}
             </div>
+        `;
+    }
+
+
+    // Finales HTML Layout (CSS Grid Struktur)
+    // Jedes direkte Child-Element ist eine Grid-Zelle.
+    itemElement.innerHTML = `
+        ${locationMarker}
+        
+        <input type="checkbox" data-task-id="${item.taskId}" class="task-checkbox form-checkbox h-5 w-5 text-green-600 rounded cursor-pointer">
+        
+        <div class="task-content">
+             ${descriptionContentHtml}
+             ${descriptionToggle}
+             ${notesToggle}
         </div>
 
-        <div class="task-right-col">
-            ${timeDisplay}
-            ${priorityArrowsHtml}
-            ${durationDisplay}
-            ${benefitDisplay}
-            ${deadlineInfo}
-            ${plannedDateDisplay}
-            ${assignedUsersDisplay}
-        </div>
+        ${timeDisplay}
+        ${priorityArrowsHtml}
+        ${durationDisplay}
+        ${benefitDisplay}
+        ${deadlineInfo}
+        ${plannedDateDisplay}
+        ${assignedUsersDisplay}
+
+        ${expandedContainerHtml}
     `;
 
     // Sicherstellen, dass Inhalte als Text eingefügt werden (verhindert XSS)
@@ -534,7 +538,7 @@ function createScheduleItemElement(item, assignedShortNames = []) {
 
 /**
  * Erstellt das DOM Element für eine erledigte Aufgabe (Definition).
- * GEÄNDERT: Angepasst an das neue Layout.
+ * GEÄNDERT: Angepasst an das neue CSS Grid Layout.
  */
 function createCompletedTaskElement(task, assignedShortNames = []) {
     const taskElement = document.createElement('div');
@@ -565,7 +569,7 @@ function createCompletedTaskElement(task, assignedShortNames = []) {
         </div>
     `;
 
-    // Dauer (nutzt neue Formatierung)
+    // Dauer
     const duration = getOriginalTotalDuration(task);
     const durationDisplay = duration > 0 ? `<span class="text-sm text-gray-500">(${formatHoursMinutes(duration)})</span>` : '';
 
@@ -574,20 +578,20 @@ function createCompletedTaskElement(task, assignedShortNames = []) {
     // Bei erledigten Aufgaben gibt es keine Teile mehr.
     const { truncated } = truncateText(task.description, truncationLength);
 
-    // GEÄNDERT: Nutzt das neue Spalten-Layout
+    // GEÄNDERT: Nutzt das neue CSS Grid Layout (flache Struktur)
+    // Wir fügen leere <span> Elemente ein, um die Spalten auszurichten, die bei erledigten Aufgaben fehlen (Zeit, Benefit, Deadline, Datum).
     taskElement.innerHTML = `
         ${locationMarker}
-        <div class="task-left-col">
-            <input type="checkbox" data-task-id="${task.id}" checked class="task-checkbox form-checkbox h-5 w-5 text-green-600 rounded mr-3 cursor-pointer">
-            <div class="task-content">
-                 <span class="text-gray-800 text-lg">${truncated}</span>
-            </div>
+        
+        <input type="checkbox" data-task-id="${task.id}" checked class="task-checkbox form-checkbox h-5 w-5 text-green-600 rounded mr-3 cursor-pointer">
+        
+        <div class="task-content">
+             <span class="text-gray-800 text-lg">${truncated}</span>
         </div>
-        <div class="task-right-col">
-            ${priorityDisplayHtml}
-            ${durationDisplay}
-            ${assignedUsersDisplay}
-        </div>
+
+        <span></span> ${priorityDisplayHtml}
+        ${durationDisplay}
+        <span></span> <span></span> <span></span> ${assignedUsersDisplay}
     `;
     return taskElement;
 }
@@ -651,7 +655,7 @@ export function renderSettingsModal(settingsToRender) {
      if (!settingsToRender || !settingsToRender.dailyTimeSlots) return;
     elements.calcPriorityCheckbox.checked = settingsToRender.calcPriority;
 
-    // NEU: Befülle die Checkbox für die exakte Zeitanzeige
+    // Befülle die Checkbox für die exakte Zeitanzeige
     if (elements.showExactTimesCheckbox) {
         elements.showExactTimesCheckbox.checked = settingsToRender.showExactTimes || false;
     }
