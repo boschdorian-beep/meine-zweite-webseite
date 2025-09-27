@@ -9,15 +9,17 @@ export const state = {
     schedule: [],     // Calculated schedule instances (ephemeral, not stored)
     settings: {},
     activeTaskType: 'Vorteil & Dauer',
-    draggedItem: null,
+    // draggedItem entfernt.
     
     // Zustand für die Filterleiste (Phase 2)
     filters: {
-        // GEÄNDERT: von prioritizedLocation zu prioritizedLocations (Array)
         prioritizedLocations: [], // Array von Ortsnamen
         prioritizedUserIds: [],      // Array von UIDs der ausgewählten Benutzer
     },
 
-    // NEU: Zustand für die Zuweisungen im "Neue Aufgabe"-Formular
-    newTaskAssignment: [] // Array von Profil-Objekten {uid, email, displayName, shortName}
+    // Zustand für die Zuweisungen im "Neue Aufgabe"-Formular
+    newTaskAssignment: [], // Array von Profil-Objekten {uid, email, displayName, shortName}
+
+    // NEU: Zustand für die Priorität im "Neue Aufgabe"-Formular (Standard: 3)
+    newTaskPriority: 3
 };
