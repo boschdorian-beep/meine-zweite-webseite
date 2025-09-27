@@ -20,6 +20,7 @@ function minsToTime(mins) {
     // Handle edge case near midnight. If it exceeds 24h, it means the calculation logic failed to advance the day, 
     // but we display it capped at 23:59 for safety if it happens within the same day calculation context.
     if (h >= 24) {
+        // console.warn("Calculated time exceeds 24h:", h, m);
         return "23:59"; 
     }
     return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
@@ -91,14 +92,130 @@ function getConsumedHoursForDay(date, currentSchedule) {
 
 // Sortierlogik für flexible Aufgaben (Priorität > Finanzieller Vorteil).
 export function sortTasksByPriority(taskA, taskB) {
-    // ... (Logik unverändert)
+    // HINWEIS: Diese Funktion wird nur für flexible Aufgaben (Typ "Vorteil & Dauer") verwendet.
+    // Fixe Termine und Deadlines werden separat behandelt.
+
+    // Hierarchie 3: Prioritäten (5=hoch, 1=niedrig)
+    const prioA = taskA.priority || 3;
+    const prioB = taskB.priority || 3;
+
+    if (prioA !== prioB) {
+        return prioB - prioA; // Höhere Zahl (höhere Priorität) zuerst
+    }
+
+    // Hierarchie 4 & 5: Finanzieller Vorteil (wenn Prioritäten gleich sind)
+    const getBenefitPerHour = (task) => {
+        const benefit = parseFloat(task.financialBenefit) || 0;
+        const duration = getOriginalTotalDuration(task);
+        return (benefit > 0 && duration > 0) ? (benefit / duration) : 0;
+    };
+
+    const benefitA = getBenefitPerHour(taskA);
+    const benefitB = getBenefitPerHour(taskB);
+
+    // Wenn calcPriority AUS ist, sortiere nur nach Existenz des Vorteils (Ja vor Nein)
+    if (!state.settings.calcPriority) {
+        if (benefitA > 0 && benefitB === 0) return -1;
+        if (benefitB > 0 && benefitA === 0) return 1;
+        return 0;
+    }
+
+    // Wenn calcPriority AN ist, sortiere nach dem Wert des Vorteils/h
+    if (benefitA !== benefitB) {
+        return benefitB - benefitA; // Höherer Vorteil zuerst
+    }
+    
+    // Standard-Fallback
+    return 0;
 }
 
 /**
  * Plant flexible Aufgaben und erstellt Schedule Items.
  */
 function scheduleFlexibleTask(task, currentSchedule) {
-    // ... (Logik unverändert)
+    const totalRequiredDuration = getOriginalTotalDuration(task);
+
+    // Erstelle ein Basis-Schedule-Item mit allen relevanten Daten
+    const baseItem = {
+        taskId: task.id,
+        description: task.description,
+        type: task.type,
+        financialBenefit: task.financialBenefit,
+        estimatedDuration: task.estimatedDuration, // Wichtig für die Berechnung des Vorteils/h
+        assignedTo: task.assignedTo,
+        notes: task.notes,
+        location: task.location,
+        priority: task.priority || 3
+    };
+
+    // Behandle Aufgaben ohne Dauer (sofort geplant für Heute)
+    if (totalRequiredDuration <= EPSILON) {
+        currentSchedule.push({
+            ...baseItem,
+            scheduleId: `sched-${task.id}-${Date.now()}-1`,
+            plannedDate: formatDateToYYYYMMDD(normalizeDate()),
+            scheduledDuration: 0
+        });
+        return;
+    }
+
+    let remainingDuration = totalRequiredDuration;
+    const startDate = normalizeDate();
+    let currentDate = normalizeDate(startDate);
+    let partIndex = 1;
+
+    // Schleife läuft, bis die gesamte Dauer eingeplant ist
+    while (remainingDuration > EPSILON) {
+
+        // Sicherheitsabbruch, falls keine Kapazität gefunden wird
+        const daysTried = (currentDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24);
+        if (daysTried > MAX_SCHEDULING_HORIZON) {
+             currentSchedule.push({
+                ...baseItem,
+                scheduleId: `sched-${task.id}-${Date.now()}-UNSCHEDULED`,
+                plannedDate: null,
+                scheduledDuration: remainingDuration,
+                description: `${task.description} (Nicht planbar - Keine Kapazität)`
+            });
+            return;
+        }
+
+        // Berechne verfügbare Zeit am aktuellen Tag
+        const consumedHours = getConsumedHoursForDay(currentDate, currentSchedule);
+        // WICHTIG: getDailyAvailableHours berücksichtigt jetzt die aktuelle Uhrzeit, falls currentDate Heute ist.
+        const availableToday = getDailyAvailableHours(currentDate) - consumedHours;
+
+        // Wenn heute nichts mehr frei ist, gehe zum nächsten Tag
+        if (availableToday <= EPSILON) {
+            currentDate.setDate(currentDate.getDate() + 1);
+            continue;
+        }
+
+        // Berechne, wie viel wir heute einplanen können
+        const durationForPart = Math.min(remainingDuration, availableToday);
+
+        const newItem = {
+            ...baseItem,
+            scheduleId: `sched-${task.id}-${Date.now()}-${partIndex}`,
+            plannedDate: formatDateToYYYYMMDD(currentDate),
+            scheduledDuration: durationForPart
+        };
+
+        // Füge "(Teil X)" hinzu, wenn die Aufgabe aufgeteilt wurde
+        if (remainingDuration > durationForPart + EPSILON || partIndex > 1) {
+             newItem.description = `${task.description} (Teil ${partIndex})`;
+        }
+
+        currentSchedule.push(newItem);
+        remainingDuration -= durationForPart;
+        partIndex++;
+
+        // Wenn noch Restzeit übrig ist, gehe zum nächsten Tag für den nächsten Teil
+        // Nur wenn der aktuelle Tag voll ausgelastet wurde
+        if (remainingDuration > EPSILON && (availableToday - durationForPart) <= EPSILON) {
+            currentDate.setDate(currentDate.getDate() + 1);
+        }
+    }
 }
 
 /**
@@ -180,7 +297,36 @@ function scheduleFixedTasks(tasks, currentSchedule) {
  * Hauptfunktion zur Neuberechnung des Zeitplans.
  */
 export function recalculateSchedule() {
-    // ... (Vorbereitung und Filterung unverändert)
+    // 1. Vorbereitung
+    const activeTasks = state.tasks.filter(t => !t.completed);
+
+    // 2. Aufgaben in priorisierte und andere aufteilen (Filterlogik)
+    const { prioritizedLocations, prioritizedUserIds } = state.filters;
+    const isFilterActive = prioritizedLocations.length > 0 || prioritizedUserIds.length > 0;
+    const currentUserId = state.user ? state.user.uid : null;
+
+    let prioritizedTasks = [];
+    let otherTasks = [];
+
+    if (isFilterActive && currentUserId) {
+        activeTasks.forEach(task => {
+            const assignedTo = task.assignedTo || [];
+            // Bedingung 1: Einer der Orte stimmt überein
+            const matchesLocation = prioritizedLocations.length > 0 && prioritizedLocations.includes(task.location);
+            
+            // Bedingung 2: Alle ausgewählten User (plus der aktuelle) sind zugewiesen (Interpretation für "Gemeinsame Aufgaben")
+            const requiredUsers = [...prioritizedUserIds, currentUserId];
+            const matchesUsers = prioritizedUserIds.length > 0 && requiredUsers.every(uid => assignedTo.includes(uid));
+
+            if (matchesLocation || matchesUsers) {
+                prioritizedTasks.push(task);
+            } else {
+                otherTasks.push(task);
+            }
+        });
+    } else {
+        otherTasks = activeTasks;
+    }
 
     // 3. Planungs-Subroutine
     const planTaskSet = (tasksToPlan, schedule) => {
