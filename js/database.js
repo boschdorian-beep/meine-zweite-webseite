@@ -31,6 +31,16 @@ export function initializeDataListeners(onUpdateCallback) {
         snapshot.forEach(doc => {
             const data = doc.data();
             data.id = doc.id;
+
+            // NEU: Migration / Sicherstellen der Datenintegrität
+            // Priorität sicherstellen (Standard 3, Range 1-5)
+            if (typeof data.priority !== 'number' || data.priority < 1 || data.priority > 5) {
+                data.priority = 3;
+            }
+            // Alte Felder entfernen (Cleanup)
+            delete data.isManuallyScheduled;
+            delete data.manualDate;
+
             tasks.push(data);
         });
         console.log("Tasks update received from Firestore.");
@@ -94,6 +104,15 @@ export async function saveTaskDefinition(taskDefinition) {
         dataToSave.assignedTo = [dataToSave.ownerId];
     }
 
+    // NEU: Priorität sicherstellen
+    if (typeof dataToSave.priority !== 'number' || dataToSave.priority < 1 || dataToSave.priority > 5) {
+        dataToSave.priority = 3;
+    }
+
+    // Entferne alte Felder
+    delete dataToSave.isManuallyScheduled;
+    delete dataToSave.manualDate;
+
     // 2. Speichern
     try {
         let docRef;
@@ -154,36 +173,51 @@ function isValidSlot(slot) {
 function validateSettings(settings) {
     const defaults = getDefaultSettings();
     if (typeof settings.calcPriority !== 'boolean') settings.calcPriority = defaults.calcPriority;
-    if (typeof settings.autoPriority !== 'boolean') settings.autoPriority = defaults.autoPriority;
+    
+    // autoPriority entfernt (Cleanup).
+    delete settings.autoPriority;
+
+    // NEU: Validierung der Textlänge (Min 5, Max 200)
+    const truncationLength = parseInt(settings.taskTruncationLength, 10);
+    if (isNaN(truncationLength) || truncationLength < 5) {
+        settings.taskTruncationLength = defaults.taskTruncationLength;
+    } else if (truncationLength > 200) {
+        settings.taskTruncationLength = 200;
+    } else {
+        settings.taskTruncationLength = truncationLength;
+    }
+
 
     if (!settings.dailyTimeSlots || typeof settings.dailyTimeSlots !== 'object') {
         settings.dailyTimeSlots = defaults.dailyTimeSlots;
-        return settings;
+        // GEÄNDERT: Nicht returnen, Locations müssen auch validiert werden.
+    } else {
+        WEEKDAYS.forEach(day => {
+            if (Array.isArray(settings.dailyTimeSlots[day])) {
+                settings.dailyTimeSlots[day] = settings.dailyTimeSlots[day].filter(isValidSlot);
+                 settings.dailyTimeSlots[day] = settings.dailyTimeSlots[day].map((slot, idx) => ({
+                    id: slot.id || `ts-${Date.now()}-${day}-${idx}`,
+                    start: slot.start,
+                    end: slot.end
+                }));
+            } else if (settings.dailyTimeSlots[day] === undefined) {
+                 settings.dailyTimeSlots[day] = defaults.dailyTimeSlots[day];
+            } else {
+                 settings.dailyTimeSlots[day] = [];
+            }
+        });
     }
 
-    WEEKDAYS.forEach(day => {
-        if (Array.isArray(settings.dailyTimeSlots[day])) {
-            settings.dailyTimeSlots[day] = settings.dailyTimeSlots[day].filter(isValidSlot);
-             settings.dailyTimeSlots[day] = settings.dailyTimeSlots[day].map((slot, idx) => ({
-                id: slot.id || `ts-${Date.now()}-${day}-${idx}`,
-                start: slot.start,
-                end: slot.end
-            }));
-        } else if (settings.dailyTimeSlots[day] === undefined) {
-             settings.dailyTimeSlots[day] = defaults.dailyTimeSlots[day];
-        } else {
-             settings.dailyTimeSlots[day] = [];
-        }
-    });
-    return settings;
-
-    // NEU: Locations validieren
+    // Locations validieren
     if (!Array.isArray(settings.locations)) {
-        settings.locations = defaults.locations;
+        // Prüfen, ob defaults.locations existiert, sonst leeres Array
+        settings.locations = defaults.locations || [];
     } else {
         // Stelle sicher, dass es nur eindeutige, getrimmte Strings sind und sortiere sie
         settings.locations = [...new Set(settings.locations.map(loc => String(loc).trim()).filter(Boolean))].sort();
     }
+
+    return settings;
 }
 
 export async function saveSettings(settings) {
