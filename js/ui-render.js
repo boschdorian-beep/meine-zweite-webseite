@@ -349,9 +349,7 @@ function createScheduleItemElement(item, assignedShortNames = []) {
     let notesContentHtml = '';
     if (item.notes) {
         // Button zum Ein-/Ausklappen (Standardmäßig eingeklappt)
-        notesToggle = `<button class="toggle-notes-btn ml-3 cursor-pointer hover:text-gray-700 transition duration-150 focus:outline-none" title="Notizen anzeigen/verbergen">
-                            <i class="fas fa-chevron-down text-gray-500"></i>
-                       </button>`;
+        notesToggle = `<button class="toggle-notes-btn w-8 h-8 flex items-center justify-center text-gray-500 hover:text-gray-800" title="Notizen"><i class="fas fa-sticky-note"></i></button>`;
         // Inhalt (versteckt) - wird später als Element hinzugefügt für Sicherheit (textContent)
         notesContentHtml = `<div class="task-notes-content hidden w-full"></div>`;
     }
@@ -360,7 +358,7 @@ function createScheduleItemElement(item, assignedShortNames = []) {
     let assignedUsersDisplay = '';
     if (assignedShortNames.length > 0) {
         const userBadges = assignedShortNames.map(name => `<span class="user-shortname">${name}</span>`).join('');
-        assignedUsersDisplay = `<div class="assigned-users-display">${userBadges}</div>`;
+        assignedUsersDisplay = `<div class="assigned-users-display flex items-center justify-center">${userBadges}</div>`;
     }
 
     // 4. NEU: Prioritäts-Pfeile
@@ -404,9 +402,7 @@ function createScheduleItemElement(item, assignedShortNames = []) {
 
     if (isTruncated) {
         // Button zum Umschalten
-        descriptionToggle = `<button class="toggle-description-btn ml-3 cursor-pointer hover:text-gray-700 transition duration-150 focus:outline-none" title="Vollständigen Text anzeigen">
-                                <i class="fas fa-chevron-down text-gray-500"></i>
-                             </button>`;
+        descriptionToggle = `<button class="toggle-description-btn w-8 h-8 flex items-center justify-center text-gray-500 hover:text-gray-800" title="Vollständigen Text anzeigen"><i class="fas fa-chevron-down"></i></button>`;
         // Der vollständige Text wird später sicher eingefügt. Suffix wird hier als Text hinzugefügt.
         fullDescriptionHtml = `<div class="task-description-full hidden w-full">${suffix}</div>`;
     }
@@ -416,7 +412,7 @@ function createScheduleItemElement(item, assignedShortNames = []) {
 
     // Dauer
     const duration = getScheduleItemDuration(item);
-    const durationDisplay = duration > 0 ? `<span class="ml-4 text-sm text-gray-500">(${formatHoursMinutes(duration)})</span>` : '';
+    const durationDisplay = duration > 0 ? formatHoursMinutes(duration) : '';
 
     // Finanzieller Vorteil
     let benefitDisplay = '';
@@ -425,9 +421,7 @@ function createScheduleItemElement(item, assignedShortNames = []) {
         const originalDuration = parseFloat(item.estimatedDuration) || 0;
         if (originalDuration > 0) {
             const benefitPerHour = (parseFloat(item.financialBenefit) / originalDuration).toFixed(2);
-            benefitDisplay = `<span class="ml-2 text-sm text-green-700">(${benefitPerHour}€/h)</span>`;
-        } else {
-            benefitDisplay = `<span class="ml-2 text-sm text-green-700">(${parseFloat(item.financialBenefit)}€)</span>`;
+            benefitDisplay = `<div class="text-xs text-green-700">(${benefitPerHour}€/h)</div>`;
         }
     }
 
@@ -438,7 +432,7 @@ function createScheduleItemElement(item, assignedShortNames = []) {
 
     if (itemPlannedDate && itemPlannedDate.getTime() > tomorrow.getTime()) {
         // Nutze lokalisierte Formatierung für zukünftige Daten
-        plannedDateDisplay = `<span class="ml-2 text-sm text-gray-400">(${formatDateLocalized(itemPlannedDate)})</span>`;
+        plannedDateDisplay = `<span>(${formatDateLocalized(itemPlannedDate)})</span>`;
     }
 
     // Uhrzeit für Fixe Termine
@@ -450,48 +444,39 @@ function createScheduleItemElement(item, assignedShortNames = []) {
     // Manuell geplante Markierung (ENTFERNT)
 
 
-    // --- Finales HTML Layout (NEUE, KORRIGIERTE Spaltenstruktur) ---
+    // --- FINALES HTML LAYOUT ---
     itemElement.innerHTML = `
         ${locationMarker}
-        <div class="flex items-start w-full">
-            <div class="flex items-center flex-grow min-w-0 mr-4">
-                <input type="checkbox" data-task-id="${item.taskId}" class="task-checkbox form-checkbox h-5 w-5 text-green-600 rounded mr-3 cursor-pointer flex-shrink-0 mt-1">
+        <div class="flex flex-col flex-grow min-w-0"> 
+            <div class="flex items-start w-full">
+                <input type="checkbox" data-task-id="${item.taskId}" class="task-checkbox form-checkbox h-5 w-5 text-green-600 rounded mr-3 cursor-pointer flex-shrink-0 mt-1.5">
                 
-                <div class="task-content text-lg cursor-pointer hover:text-blue-600 transition duration-150 min-w-0">
-                    <div class="flex items-center">
-                         <span class="task-description-short truncate"></span>
-                         
-                         ${descriptionToggle}
-                         ${timeDisplay}
-                         ${notesToggle}
+                <div class="task-content flex-grow text-lg cursor-pointer hover:text-blue-600 transition duration-150 min-w-0 pt-1">
+                    <span class="task-description-short"></span>
+                    ${timeDisplay}
+                </div>
+                
+                <div class="flex items-center flex-shrink-0">
+                    ${descriptionToggle}
+                    ${notesToggle}
+                </div>
+
+                <div class="flex items-center space-x-4 flex-shrink-0 ml-4 pt-1">
+                    <div class="w-20 text-center" title="Zugewiesen an">${assignedUsersDisplay}</div>
+                    <div class="w-24 text-right text-sm text-gray-500" title="Dauer">
+                        <span>${durationDisplay}</span>
+                        ${benefitDisplay}
+                    </div>
+                    <div class="w-24 flex justify-center">${priorityArrowsHtml}</div>
+                    <div class="w-32 text-right text-sm">
+                        ${item.deadlineDate ? `<span class="text-red-500 font-semibold">Deadline: ${formatDateLocalized(parseDateString(item.deadlineDate))}</span>` : ''}
+                        ${plannedDateDisplay}
                     </div>
                 </div>
             </div>
-
-            <div class="flex items-center space-x-4 flex-shrink-0 mt-1">
-                
-                <div class="w-20 text-center" title="Zugewiesen an">
-                    ${assignedUsersDisplay}
-                </div>
-
-                <div class="w-24 text-right text-sm text-gray-500" title="Dauer">
-                    ${durationDisplay}
-                    ${benefitDisplay}
-                </div>
-
-                <div class="w-24 flex justify-center">
-                    ${priorityArrowsHtml}
-                </div>
-
-                <div class="w-32 text-right text-sm">
-                    ${item.deadlineDate ? `<span class="text-red-500 font-semibold">Deadline: ${formatDateLocalized(parseDateString(item.deadlineDate))}</span>` : ''}
-                    ${plannedDateDisplay}
-                </div>
-            </div>
+            ${fullDescriptionHtml}
+            ${notesContentHtml}
         </div>
-
-        ${fullDescriptionHtml}
-        ${notesContentHtml}
     `;
 
     // Sicherstellen, dass Inhalte als Text eingefügt werden (verhindert XSS)
@@ -535,57 +520,41 @@ function createScheduleItemElement(item, assignedShortNames = []) {
  */
 function createCompletedTaskElement(task, assignedShortNames = []) {
     const taskElement = document.createElement('div');
-    // cursor-default entfernt den Grab-Cursor
     taskElement.className = 'task-item completed cursor-default';
     taskElement.dataset.taskId = task.id;
 
-    // 1. Ort (Farbiger Balken)
+    // --- Variablen vorbereiten ---
     let locationMarker = '';
     if (task.location) {
         const color = generateColorFromString(task.location);
         // Etwas transparenter bei erledigten Aufgaben
         locationMarker = `<div class="task-location-marker" style="background-color: ${color}; opacity: 0.6;" title="Ort: ${task.location}"></div>`;
     }
-
-    // 2. Zugewiesene Benutzer (Kürzel)
     let assignedUsersDisplay = '';
     if (assignedShortNames.length > 0) {
         const userBadges = assignedShortNames.map(name => `<span class="user-shortname">${name}</span>`).join('');
-        assignedUsersDisplay = `<div class="assigned-users-display">${userBadges}</div>`;
+        assignedUsersDisplay = `<div class="assigned-users-display flex items-center justify-center">${userBadges}</div>`;
     }
-
-    // NEU: Priorität (nur Anzeige)
     const priority = task.priority || 3;
-    const priorityDisplayHtml = `
-        <div class="priority-arrows">
-            <span class="priority-display" title="Priorität">${priority}</span>
-        </div>
-    `;
-
-    // Dauer (nutzt neue Formatierung)
+    const priorityDisplayHtml = `<div class="priority-arrows" title="Priorität"><span class="priority-display">${priority}</span></div>`;
     const duration = getOriginalTotalDuration(task);
-    const durationDisplay = duration > 0 ? `<span class="ml-4 text-sm text-gray-500">(${formatHoursMinutes(duration)})</span>` : '';
-
-    // Textkürzung auch hier anwenden (ohne Toggle, da erledigt)
+    const durationDisplay = duration > 0 ? formatHoursMinutes(duration) : '';
     const truncationLength = state.settings.taskTruncationLength || 30;
-    // Bei erledigten Aufgaben gibt es keine Teile mehr.
     const { truncated } = truncateText(task.description, truncationLength);
 
+    // --- FINALES HTML LAYOUT ---
     taskElement.innerHTML = `
         ${locationMarker}
-        <div class="flex items-center justify-between flex-grow w-full">
-            <!-- Linker Teil -->
-            <div class="flex items-center flex-grow min-w-0 mr-4">
-                <input type="checkbox" data-task-id="${task.id}" checked class="task-checkbox form-checkbox h-5 w-5 text-green-600 rounded mr-3 cursor-pointer">
-                <span class="task-content text-gray-800 text-lg truncate">${truncated}</span>
+        <div class="flex items-start justify-between flex-grow w-full">
+            <div class="flex items-start flex-grow min-w-0 mr-4">
+                <input type="checkbox" data-task-id="${task.id}" checked class="task-checkbox form-checkbox h-5 w-5 text-green-600 rounded mr-3 cursor-pointer mt-1">
+                <span class="task-content text-gray-800 text-lg">${truncated}</span>
             </div>
-            <!-- Rechter Teil (Metadaten) -->
             <div class="flex items-center space-x-4 flex-shrink-0 text-gray-500">
                 <div class="w-20 text-center" title="Zugewiesen an">${assignedUsersDisplay}</div>
                 <div class="w-24 text-right text-sm" title="Dauer">${durationDisplay}</div>
                 <div class="w-24 flex justify-center">${priorityDisplayHtml}</div>
-                <div class="w-32 text-right text-sm"></div> <!-- Platzhalter für Konsistenz -->
-            </div>
+                <div class="w-32 text-right text-sm"></div> </div>
         </div>
     `;
     return taskElement;
