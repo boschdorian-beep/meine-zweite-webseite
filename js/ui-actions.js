@@ -1,8 +1,10 @@
 // js/ui-actions.js
 import { state } from './state.js';
 import { WEEKDAYS } from './config.js';
+// GEÄNDERT: handleTaskDrop entfernt, changeTaskPriority hinzugefügt
 import { toggleTaskCompleted, updateTaskDetails, getOriginalTotalDuration, recalculateSchedule, changeTaskPriority } from './scheduler.js';
 import { clearAllCompletedTasks, deleteTaskDefinition, saveSettings, saveTaskDefinition } from './database.js';
+// GEÄNDERT: renderPrioritySelector hinzugefügt
 import { renderApp, renderSettingsModal, renderPrioritySelector } from './ui-render.js';
 import { parseDateString, calculateDecimalHours } from './utils.js';
 import { searchUsers, getUsersByIds } from './collaboration.js';
@@ -13,14 +15,15 @@ let modalState = {
     editModal: {
         assignedUsers: [], // Array von Profil-Objekten {uid, email, displayName, shortName}
         ownerId: null,
-        priority: 3
+        priority: 3 // NEU: Priorität im Edit Modal Zustand
     }
 };
 
 // --- Initialization ---
 
 /**
- * Initialisiert die UI-Elemente (Kollaboration und Priorität).
+ * NEU: Initialisiert die UI-Elemente (Kollaboration und Priorität).
+ * (Ersetzt initializeCollaborationUI)
  */
 export function initializeUIComponents() {
     // Initialisiere den Prioritäts-Selector für "Neue Aufgabe"
@@ -96,6 +99,8 @@ export function attachTaskInteractions() {
         checkbox.addEventListener('change', handleCheckboxChange);
     });
 
+    // Drag & Drop (ENTFERNT)
+
     // Klick auf Aufgabe (Öffnet Edit Modal)
     document.querySelectorAll('.task-content').forEach(content => {
         content.removeEventListener('click', handleTaskContentClick);
@@ -108,20 +113,20 @@ export function attachTaskInteractions() {
         toggle.addEventListener('click', handleNotesToggle);
     });
 
-    // Klick auf Prioritäts-Pfeile
+    // NEU: Klick auf Prioritäts-Pfeile
     document.querySelectorAll('.priority-arrow-btn').forEach(button => {
         button.removeEventListener('click', handlePriorityArrowClick);
         button.addEventListener('click', handlePriorityArrowClick);
     });
 
-    // Klick auf "Mehr anzeigen" (Toggle Beschreibung)
+    // NEU: Klick auf "Mehr anzeigen" (Toggle Beschreibung)
     document.querySelectorAll('.toggle-description-btn').forEach(toggle => {
         toggle.removeEventListener('click', handleDescriptionToggle);
         toggle.addEventListener('click', handleDescriptionToggle);
     });
 }
 
-// Handler für Prioritäts-Pfeile
+// NEU: Handler für Prioritäts-Pfeile
 async function handlePriorityArrowClick(event) {
     // Verhindere, dass der Klick das Edit-Modal öffnet
     event.stopPropagation();
@@ -139,7 +144,7 @@ async function handlePriorityArrowClick(event) {
     await renderApp();
 }
 
-// Toggle für Beschreibung (ähnlich wie Notizen)
+// NEU: Toggle für Beschreibung (ähnlich wie Notizen)
 function handleDescriptionToggle(event) {
     // Verhindere, dass der Klick das Edit-Modal öffnet
     event.stopPropagation(); 
@@ -169,7 +174,7 @@ function handleDescriptionToggle(event) {
 }
 
 
-// Toggle für Notizenanzeige
+// Toggle für Notizenanzeige (Unverändert)
 function handleNotesToggle(event) {
     // Verhindere, dass der Klick das Edit-Modal öffnet
     event.stopPropagation(); 
@@ -198,10 +203,13 @@ async function handleCheckboxChange(event) {
     await renderApp();
 }
 
+// --- Drag and Drop Handlers (ENTFERNT) ---
+
+
 // --- Priority Selector UI (Generalisiert für Create und Edit) ---
 
 /**
- * Setzt den Prioritäts-Selector auf (Rendern und Event Listener).
+ * NEU: Setzt den Prioritäts-Selector auf (Rendern und Event Listener).
  * Nutzt Radio-Buttons für robuste Auswahl.
  */
 function setupPrioritySelector(context) {
@@ -237,7 +245,7 @@ function setupPrioritySelector(context) {
 }
 
 /**
- * Setzt die Priorität im entsprechenden State.
+ * NEU: Setzt die Priorität im entsprechenden State.
  */
 function setPriority(context, priority) {
     if (context === 'new') {
@@ -249,7 +257,7 @@ function setPriority(context, priority) {
 }
 
 
-// --- Edit Modal Actions ---
+// --- Edit Modal Actions (Stark überarbeitet) ---
 
 function handleTaskContentClick(event) {
     // Verhindert Klick, wenn die Aufgabe erledigt ist
@@ -289,7 +297,7 @@ function toggleEditInputs(taskType) {
     }
 }
 
-// Unterstützt Typänderung, Uhrzeit (inkl. Deadline Time), Priorität und nutzt generalisierte Kollaborations-UI
+// Unterstützt Typänderung, Uhrzeit, Priorität und nutzt generalisierte Kollaborations-UI
 export async function openEditModal(taskId) {
     const task = state.tasks.find(t => t.id === taskId);
     if (!task) return;
@@ -297,7 +305,7 @@ export async function openEditModal(taskId) {
     // 1. Modal-Zustand initialisieren
     modalState.editModal.ownerId = task.ownerId;
     modalState.editModal.assignedUsers = []; // Wird später geladen
-    // Lese Priorität (Standard 3)
+    // NEU: Lese Priorität (Standard 3)
     modalState.editModal.priority = task.priority || 3;
 
 
@@ -320,8 +328,6 @@ export async function openEditModal(taskId) {
     
     // Deadline
     document.getElementById('edit-deadline-date').value = task.deadlineDate || '';
-    // NEU: Befülle Deadline Uhrzeit
-    document.getElementById('edit-deadline-time').value = task.deadlineTime || '';
     setDurationInputs(duration, 'edit-deadline-duration-h', 'edit-deadline-duration-m');
     
     // Fixer Termin
@@ -346,7 +352,7 @@ export async function openEditModal(taskId) {
     
     // Initialisiere die Kollaborations-UI
     setupCollaborationUI('edit');
-    // Initialisiere die Prioritäts-UI (liest den Wert aus modalState und setzt Listener)
+    // NEU: Initialisiere die Prioritäts-UI (liest den Wert aus modalState und setzt Listener)
     setupPrioritySelector('edit');
 
     
@@ -368,6 +374,8 @@ export async function openEditModal(taskId) {
 
 
 // --- Collaboration UI (Generalisiert für Create und Edit) ---
+
+// initializeCollaborationUI entfernt (ersetzt durch initializeUIComponents)
 
 /**
  * Holt die relevanten UI-Elemente und den Zustand basierend auf dem Kontext.
@@ -606,7 +614,7 @@ export function closeEditModal() {
     }
 }
 
-// Liest neue Felder (Typ, Besitzer, Uhrzeit (inkl. Deadline Time), Priorität) und rechnet Zeit um
+// Liest neue Felder (Typ, Besitzer, Uhrzeit, Priorität) und rechnet Zeit um
 export async function handleSaveEditedTask() {
     const taskId = document.getElementById('edit-task-id').value;
     // Lese den Typ aus dem <select> Element
@@ -626,7 +634,7 @@ export async function handleSaveEditedTask() {
     // Lese den (potenziell geänderten) Besitzer
     const ownerId = modalState.editModal.ownerId;
 
-    // Lese Priorität aus dem Modal State
+    // NEU: Lese Priorität aus dem Modal State
     const priority = modalState.editModal.priority;
 
     const updatedDetails = {
@@ -636,7 +644,7 @@ export async function handleSaveEditedTask() {
         ownerId: ownerId, // Übergebe den Besitzer
         notes: notes || null,
         location: location || null,
-        priority: priority
+        priority: priority // NEU: Übergebe Priorität
     };
 
     try {
@@ -651,10 +659,6 @@ export async function handleSaveEditedTask() {
             const deadlineDate = document.getElementById('edit-deadline-date').value;
             if (!deadlineDate) throw new Error("Bitte gib ein Deadline Datum ein!");
             updatedDetails.deadlineDate = deadlineDate;
-
-            // NEU: Lese Deadline Uhrzeit
-            const deadlineTime = document.getElementById('edit-deadline-time').value;
-            updatedDetails.deadlineTime = deadlineTime || null;
 
             const hours = document.getElementById('edit-deadline-duration-h').value;
             const minutes = document.getElementById('edit-deadline-duration-m').value;
@@ -751,14 +755,7 @@ export function closeModal() {
 export function updateAndGetSettingsFromModal() {
     modalState.tempSettings.calcPriority = document.getElementById('calcPriorityCheckbox').checked;
 
-    // NEU: Lese die Einstellung für die exakte Zeitanzeige
-    const showExactTimesCheckbox = document.getElementById('showExactTimesCheckbox');
-    if (showExactTimesCheckbox) {
-        modalState.tempSettings.showExactTimes = showExactTimesCheckbox.checked;
-    }
-
-
-    // Lese die Einstellung für die Textlänge
+    // NEU: Lese die Einstellung für die Textlänge
     const truncationLengthInput = document.getElementById('taskTruncationLengthInput');
     if (truncationLengthInput) {
         const value = parseInt(truncationLengthInput.value, 10);
@@ -993,7 +990,7 @@ export function setActiveTaskType(button) {
     }
 }
 
-// Setzt neue Felder zurück, inkl. Zuweisungen, Uhrzeit (inkl. Deadline) und Priorität
+// Setzt neue Felder zurück, inkl. Zuweisungen, Uhrzeit und Priorität
 export function clearInputs() {
     document.getElementById('newTaskInput').value = '';
     document.getElementById('newNotesInput').value = ''; 
@@ -1013,7 +1010,7 @@ export function clearInputs() {
         if (ctx.searchResults) ctx.searchResults.classList.add('hidden');
     }
 
-    // Priorität zurücksetzen auf 3
+    // NEU: Priorität zurücksetzen auf 3
     setPriority('new', 3);
     // Selector neu rendern, damit die UI aktuell ist.
     renderPrioritySelector('new', 3);
@@ -1024,7 +1021,6 @@ export function clearInputs() {
     document.getElementById('monthly-financial-benefit').value = '';
     
     document.getElementById('deadline-date').value = '';
-    document.getElementById('deadline-time').value = ''; // NEU: Reset Deadline Uhrzeit
     document.getElementById('deadline-duration-h').value = '1';
     document.getElementById('deadline-duration-m').value = '0';
 
