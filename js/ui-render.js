@@ -453,6 +453,10 @@ function createScheduleItemElement(item, assignedShortNames = []) {
     // Finales HTML Layout
     // GEÄNDERT: Layout angepasst, um Beschreibungstoggle und Notizen unterzubringen.
     // Das task-item verwendet `items-start` (in CSS). Checkbox benötigt mt-0.5 für vertikale Ausrichtung.
+    // --- Finales HTML Layout (NEUE Spaltenstruktur) ---
+    // Das Layout ist in zwei Hauptteile geteilt:
+    // 1. Linker Teil (flex-grow): Checkbox und Beschreibung. Nimmt den meisten Platz ein.
+    // 2. Rechter Teil (flex-shrink-0): Metadaten in Spalten mit fester Breite.
     itemElement.innerHTML = `
         ${locationMarker}
         <div class="flex flex-col flex-grow w-full">
@@ -464,6 +468,20 @@ function createScheduleItemElement(item, assignedShortNames = []) {
                     ${descriptionToggle}
                     ${timeDisplay}
                     ${notesToggle}
+        <div class="flex flex-col flex-grow min-w-0"> 
+            <div class="flex items-center justify-between w-full">
+                <!-- Linker Teil: Beschreibung -->
+                <div class="flex items-center flex-grow min-w-0 mr-4">
+                    <input type="checkbox" data-task-id="${item.taskId}" class="task-checkbox form-checkbox h-5 w-5 text-green-600 rounded mr-3 cursor-pointer flex-shrink-0">
+                    
+                    <div class="task-content flex items-center text-lg cursor-pointer hover:text-blue-600 transition duration-150 min-w-0">
+                        <div class="truncate"> 
+                            ${descriptionContentHtml}
+                        </div>
+                        ${descriptionToggle}
+                        ${timeDisplay}
+                        ${notesToggle}
+                    </div>
                 </div>
 
                 ${priorityArrowsHtml}
@@ -472,8 +490,19 @@ function createScheduleItemElement(item, assignedShortNames = []) {
                 ${item.deadlineDate ? `<span class="ml-2 text-sm text-red-500">Deadline: ${formatDateLocalized(parseDateString(item.deadlineDate))}</span>` : ''}
                 ${plannedDateDisplay}
                 ${assignedUsersDisplay}
+                <!-- Rechter Teil: Metadaten-Spalten -->
+                <div class="flex items-center space-x-4 flex-shrink-0">
+                    <div class="w-20 text-center" title="Zugewiesen an">${assignedUsersDisplay}</div>
+                    <div class="w-20 text-right text-gray-500" title="Dauer">${durationDisplay} ${benefitDisplay}</div>
+                    <div class="w-24 flex justify-center">${priorityArrowsHtml}</div>
+                    <div class="w-32 text-right text-red-500" title="Fälligkeit">
+                        ${item.deadlineDate ? `<span>${formatDateLocalized(parseDateString(item.deadlineDate))}</span>` : ''}
+                        ${plannedDateDisplay}
+                    </div>
+                </div>
             </div>
 
+            <!-- Ausklappbare Inhalte (Notizen, voller Text) -->
             ${fullDescriptionHtml}
             ${notesContentHtml}
         </div>
@@ -564,6 +593,19 @@ function createCompletedTaskElement(task, assignedShortNames = []) {
             ${priorityDisplayHtml}
             ${durationDisplay}
             ${assignedUsersDisplay}
+        <div class="flex items-center justify-between flex-grow w-full">
+            <!-- Linker Teil -->
+            <div class="flex items-center flex-grow mr-4">
+                <input type="checkbox" data-task-id="${task.id}" checked class="task-checkbox form-checkbox h-5 w-5 text-green-600 rounded mr-3 cursor-pointer">
+                <span class="task-content text-gray-800 text-lg">${truncated}</span>
+            </div>
+            <!-- Rechter Teil (Metadaten) -->
+            <div class="flex items-center space-x-4 flex-shrink-0 text-gray-500">
+                <div class="w-20 text-center">${assignedUsersDisplay}</div>
+                <div class="w-20 text-right">${durationDisplay}</div>
+                <div class="w-24 flex justify-center">${priorityDisplayHtml}</div>
+                <div class="w-32"></div> <!-- Platzhalter für Konsistenz -->
+            </div>
         </div>
     `;
     return taskElement;
