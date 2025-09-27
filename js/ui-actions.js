@@ -1,9 +1,11 @@
 // js/ui-actions.js
 import { state } from './state.js';
 import { WEEKDAYS } from './config.js';
-import { toggleTaskCompleted, handleTaskDrop, updateTaskDetails, getOriginalTotalDuration, recalculateSchedule } from './scheduler.js';
+// GEÄNDERT: handleTaskDrop entfernt, changeTaskPriority hinzugefügt
+import { toggleTaskCompleted, updateTaskDetails, getOriginalTotalDuration, recalculateSchedule, changeTaskPriority } from './scheduler.js';
 import { clearAllCompletedTasks, deleteTaskDefinition, saveSettings, saveTaskDefinition } from './database.js';
-import { renderApp, renderSettingsModal } from './ui-render.js';
+// GEÄNDERT: renderPrioritySelector hinzugefügt
+import { renderApp, renderSettingsModal, renderPrioritySelector } from './ui-render.js';
 import { parseDateString, calculateDecimalHours } from './utils.js';
 import { searchUsers, getUsersByIds } from './collaboration.js';
  
@@ -12,9 +14,28 @@ let modalState = {
     tempSettings: {},
     editModal: {
         assignedUsers: [], // Array von Profil-Objekten {uid, email, displayName, shortName}
-        ownerId: null
+        ownerId: null,
+        priority: 3 // NEU: Priorität im Edit Modal Zustand
     }
 };
+
+// --- Initialization ---
+
+/**
+ * NEU: Initialisiert die UI-Elemente (Kollaboration und Priorität).
+ * (Ersetzt initializeCollaborationUI)
+ */
+export function initializeUIComponents() {
+    // Initialisiere den Prioritäts-Selector für "Neue Aufgabe"
+    // Liest state.newTaskPriority und setzt Listener
+    setupPrioritySelector('new');
+
+    // Initialisiere die Kollaborations-UI für "Neue Aufgabe" ('create')
+    setupCollaborationUI('create');
+    // Rendere die initiale Liste (normalerweise nur der aktuelle Benutzer, falls geladen)
+    renderAssignedUsers('create');
+}
+
 
 // --- Task Interactions ---
 
@@ -42,7 +63,7 @@ export function attachFilterInteractions() {
 async function handleFilterChange(event) {
     const target = event.target;
 
-    // GEÄNDERT: Orts-Filter (Checkboxes)
+    // Orts-Filter (Checkboxes)
     if (target.matches('.location-filter-checkbox')) {
         const selectedLocations = Array.from(document.querySelectorAll('.location-filter-checkbox:checked')).map(cb => cb.value);
         // Nutzt das Array prioritizedLocations (siehe state.js)
@@ -62,7 +83,6 @@ async function handleFilterChange(event) {
 
 // Benannte Funktion für den Clear-Filters-Listener
 async function handleClearFilters() {
-    // GEÄNDERT: prioritizedLocations zurücksetzen
     state.filters.prioritizedLocations = [];
     state.filters.prioritizedUserIds = [];
     
@@ -79,29 +99,7 @@ export function attachTaskInteractions() {
         checkbox.addEventListener('change', handleCheckboxChange);
     });
 
-    // Drag & Drop (Unverändert)
-    document.querySelectorAll('.task-item').forEach(taskElement => {
-        taskElement.removeEventListener('dragstart', handleDragStart);
-        taskElement.removeEventListener('dragend', handleDragEnd);
-
-        if (taskElement.draggable) {
-            taskElement.addEventListener('dragstart', handleDragStart);
-            taskElement.addEventListener('dragend', handleDragEnd);
-        }
-    });
-
-    document.querySelectorAll('.drop-zone').forEach(zone => {
-        zone.removeEventListener('dragover', handleDragOver);
-        zone.removeEventListener('dragleave', handleDragLeaveZone);
-        zone.removeEventListener('drop', handleDrop);
-
-        // Drop Zones nur aktivieren, wenn Manuell Sortieren AN ist
-        if (!state.settings.autoPriority) {
-            zone.addEventListener('dragover', handleDragOver);
-            zone.addEventListener('dragleave', handleDragLeaveZone);
-            zone.addEventListener('drop', handleDrop);
-        }
-    });
+    // Drag & Drop (ENTFERNT)
 
     // Klick auf Aufgabe (Öffnet Edit Modal)
     document.querySelectorAll('.task-content').forEach(content => {
@@ -114,7 +112,67 @@ export function attachTaskInteractions() {
         toggle.removeEventListener('click', handleNotesToggle);
         toggle.addEventListener('click', handleNotesToggle);
     });
+
+    // NEU: Klick auf Prioritäts-Pfeile
+    document.querySelectorAll('.priority-arrow-btn').forEach(button => {
+        button.removeEventListener('click', handlePriorityArrowClick);
+        button.addEventListener('click', handlePriorityArrowClick);
+    });
+
+    // NEU: Klick auf "Mehr anzeigen" (Toggle Beschreibung)
+    document.querySelectorAll('.toggle-description-btn').forEach(toggle => {
+        toggle.removeEventListener('click', handleDescriptionToggle);
+        toggle.addEventListener('click', handleDescriptionToggle);
+    });
 }
+
+// NEU: Handler für Prioritäts-Pfeile
+async function handlePriorityArrowClick(event) {
+    // Verhindere, dass der Klick das Edit-Modal öffnet
+    event.stopPropagation();
+    const button = event.target.closest('.priority-arrow-btn');
+    // Prüfe auf 'disabled' Klasse (gesetzt durch ui-render.js)
+    if (!button || button.classList.contains('disabled')) return;
+
+    const taskId = button.dataset.taskId;
+    const direction = button.dataset.direction;
+
+    // Rufe Scheduler-Logik auf (speichert und berechnet neu)
+    await changeTaskPriority(taskId, direction);
+    // Für sofortiges Feedback neu rendern (Sortierung und Pfeil-Status).
+    // Der Listener wird dies ebenfalls tun, aber dies ist schneller.
+    await renderApp();
+}
+
+// NEU: Toggle für Beschreibung (ähnlich wie Notizen)
+function handleDescriptionToggle(event) {
+    // Verhindere, dass der Klick das Edit-Modal öffnet
+    event.stopPropagation(); 
+    const taskElement = event.target.closest('.task-item');
+    // Wir toggeln die Sichtbarkeit zwischen dem gekürzten und dem vollen Text
+    const shortText = taskElement.querySelector('.task-description-short');
+    const fullText = taskElement.querySelector('.task-description-full');
+    const button = event.target.closest('.toggle-description-btn');
+
+    if (shortText && fullText && button) {
+        const isExpanded = !fullText.classList.contains('hidden');
+        
+        if (isExpanded) {
+            // Einklappen
+            fullText.classList.add('hidden');
+            shortText.classList.remove('hidden');
+            button.innerHTML = '<i class="fas fa-chevron-down text-gray-500"></i>'; // Pfeil nach unten
+            button.title = "Vollständigen Text anzeigen";
+        } else {
+            // Ausklappen
+            fullText.classList.remove('hidden');
+            shortText.classList.add('hidden');
+            button.innerHTML = '<i class="fas fa-chevron-up text-gray-500"></i>'; // Pfeil nach oben
+            button.title = "Text verbergen";
+        }
+    }
+}
+
 
 // Toggle für Notizenanzeige (Unverändert)
 function handleNotesToggle(event) {
@@ -145,119 +203,57 @@ async function handleCheckboxChange(event) {
     await renderApp();
 }
 
-// --- Drag and Drop Handlers (Unverändert) ---
+// --- Drag and Drop Handlers (ENTFERNT) ---
 
-function handleDragStart(e) {
-    // Verhindere Drag, wenn auf interaktive Elemente (Button, Input) geklickt wird
-    if (e.target.closest('button') || e.target.closest('input')) {
-        e.preventDefault();
-        return;
+
+// --- Priority Selector UI (Generalisiert für Create und Edit) ---
+
+/**
+ * NEU: Setzt den Prioritäts-Selector auf (Rendern und Event Listener).
+ * Nutzt Radio-Buttons für robuste Auswahl.
+ */
+function setupPrioritySelector(context) {
+    // 1. Bestimme aktuellen Wert aus dem State
+    let currentPriority;
+    if (context === 'new') {
+        currentPriority = state.newTaskPriority;
+    } else if (context === 'edit') {
+        currentPriority = modalState.editModal.priority;
     }
-    
-    state.draggedItem = e.currentTarget; // Nutze currentTarget, falls auf ein Kind-Element geklickt wurde
-    e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('text/plain', state.draggedItem.dataset.taskId);
-    setTimeout(() => {
-        state.draggedItem.classList.add('dragging');
-    }, 0);
-}
 
-function handleDragOver(e) {
-    e.preventDefault();
-    const zone = e.currentTarget;
-    zone.classList.add('drag-over-zone');
+    // 2. Rendern der Buttons (stellt sicher, dass der richtige Button ausgewählt ist)
+    renderPrioritySelector(context, currentPriority);
 
-    const targetItem = e.target.closest('.task-item');
-    document.querySelectorAll('.task-item').forEach(item => {
-        item.classList.remove('drag-over-top', 'drag-over-bottom');
-    });
+    // 3. Event Listener hinzufügen
+    const selectorId = `${context}-priority-selector`;
+    const selector = document.getElementById(selectorId);
+    if (!selector) return;
 
-    if (targetItem && targetItem !== state.draggedItem && !targetItem.classList.contains('completed')) {
-        const rect = targetItem.getBoundingClientRect();
-        const offsetY = e.clientY - rect.top;
-        if (offsetY < rect.height / 2) {
-            targetItem.classList.add('drag-over-top');
-        } else {
-            targetItem.classList.add('drag-over-bottom');
+    // Nutze 'change' Event Delegation für die Radio Buttons
+    // Wir definieren die Funktion hier, um den Kontext zu erhalten.
+    const handleChange = (event) => {
+        // Prüfe, ob das Event von einem Radio Button innerhalb dieses Selectors kommt
+        if (event.target.matches(`input[name="${context}-priority-radio"]`)) {
+            const priority = parseInt(event.target.value, 10);
+            setPriority(context, priority);
         }
-    }
+    };
+
+    // WICHTIG: Wir nutzen 'onchange' (ersetzt den Listener), um sicherzustellen, 
+    // dass keine doppelten Listener entstehen, wenn das Edit-Modal mehrfach geöffnet wird.
+    selector.onchange = handleChange;
 }
 
-function handleDragLeaveZone(e) {
-    // Prüft, ob der Cursor die Zone wirklich verlassen hat
-    if (!e.currentTarget.contains(e.relatedTarget)) {
-        e.currentTarget.classList.remove('drag-over-zone');
+/**
+ * NEU: Setzt die Priorität im entsprechenden State.
+ */
+function setPriority(context, priority) {
+    if (context === 'new') {
+        state.newTaskPriority = priority;
+    } else if (context === 'edit') {
+        modalState.editModal.priority = priority;
     }
-}
-
-async function handleDrop(e) {
-    e.preventDefault();
-    if (!state.draggedItem) return;
-
-    const dropTargetItem = e.target.closest('.task-item');
-    const draggedTaskId = state.draggedItem.dataset.taskId;
-
-    let dropTargetTaskId = null;
-    let insertBefore = false;
-
-    // Bestimme Ziel und Position (vor oder nach dem Ziel)
-    if (dropTargetItem && dropTargetItem !== state.draggedItem) {
-        dropTargetTaskId = dropTargetItem.dataset.taskId;
-        const rect = dropTargetItem.getBoundingClientRect();
-        const offsetY = e.clientY - rect.top;
-        insertBefore = offsetY < rect.height / 2;
-    }
-
-    // Bestimme das neue Datum basierend auf der Zone
-    let newDate = null;
-    const zone = e.currentTarget;
-    const section = zone.closest('[data-date-offset]');
-    if (section) {
-        const offset = parseInt(section.dataset.dateOffset, 10);
-        if (offset < 2) {
-            // Heute oder Morgen
-            newDate = new Date();
-            newDate.setDate(newDate.getDate() + offset);
-        }
-        if (offset === 2) {
-            // Zukunft: Versuche das Datum des Ziels zu übernehmen, falls vorhanden
-            if (dropTargetItem) {
-                 const targetScheduleId = dropTargetItem.dataset.scheduleId;
-                 const targetScheduleItem = state.schedule.find(s => s.scheduleId === targetScheduleId);
-
-                 if (targetScheduleItem && targetScheduleItem.plannedDate) {
-                    newDate = parseDateString(targetScheduleItem.plannedDate);
-                 }
-            }
-            // Fallback für Zukunft: Heute + 2 Tage
-            if (!newDate) {
-                newDate = new Date();
-                newDate.setDate(newDate.getDate() + 2);
-            }
-        }
-    }
-
-    // Rufe die Scheduler-Logik auf
-    // handleTaskDrop ist in scheduler.js definiert
-    const success = await handleTaskDrop(draggedTaskId, dropTargetTaskId, insertBefore, newDate);
-
-    if (success) {
-        await renderApp();
-    }
-    handleDragEnd();
-}
-
-function handleDragEnd() {
-    if (state.draggedItem) {
-        state.draggedItem.classList.remove('dragging');
-    }
-    document.querySelectorAll('.task-item').forEach(item => {
-        item.classList.remove('drag-over-top', 'drag-over-bottom');
-    });
-    document.querySelectorAll('.drop-zone').forEach(zone => {
-        zone.classList.remove('drag-over-zone');
-    });
-    state.draggedItem = null;
+    // Das Rendern erfolgt durch den 'change' Listener oder beim Öffnen des Modals.
 }
 
 
@@ -268,6 +264,7 @@ function handleTaskContentClick(event) {
     if (event.target.closest('.task-item').classList.contains('completed')) return;
 
     // Verhindert Klick, wenn auf interaktive Elemente innerhalb des Contents geklickt wird
+    // (z.B. Toggle-Buttons für Notizen oder Beschreibung)
     if (event.target.closest('button') || event.target.closest('input')) {
         return;
     }
@@ -300,7 +297,7 @@ function toggleEditInputs(taskType) {
     }
 }
 
-// Unterstützt Typänderung, Uhrzeit und nutzt generalisierte Kollaborations-UI
+// Unterstützt Typänderung, Uhrzeit, Priorität und nutzt generalisierte Kollaborations-UI
 export async function openEditModal(taskId) {
     const task = state.tasks.find(t => t.id === taskId);
     if (!task) return;
@@ -308,6 +305,9 @@ export async function openEditModal(taskId) {
     // 1. Modal-Zustand initialisieren
     modalState.editModal.ownerId = task.ownerId;
     modalState.editModal.assignedUsers = []; // Wird später geladen
+    // NEU: Lese Priorität (Standard 3)
+    modalState.editModal.priority = task.priority || 3;
+
 
     // 2. Basisdaten befüllen
     document.getElementById('edit-task-id').value = task.id;
@@ -352,6 +352,9 @@ export async function openEditModal(taskId) {
     
     // Initialisiere die Kollaborations-UI
     setupCollaborationUI('edit');
+    // NEU: Initialisiere die Prioritäts-UI (liest den Wert aus modalState und setzt Listener)
+    setupPrioritySelector('edit');
+
     
     // Initial leere Liste rendern, während Profile laden
     renderAssignedUsers('edit'); 
@@ -372,19 +375,13 @@ export async function openEditModal(taskId) {
 
 // --- Collaboration UI (Generalisiert für Create und Edit) ---
 
-/**
- * Initialisiert die Kollaborations-UI für das "Neue Aufgabe"-Formular (Kontext 'create').
- */
-export function initializeCollaborationUI() {
-    setupCollaborationUI('create');
-    // Rendere die initiale Liste (normalerweise nur der aktuelle Benutzer, falls geladen)
-    renderAssignedUsers('create');
-}
+// initializeCollaborationUI entfernt (ersetzt durch initializeUIComponents)
 
 /**
  * Holt die relevanten UI-Elemente und den Zustand basierend auf dem Kontext.
  */
 function getCollaborationContext(context) {
+    // 'create' ist der Kontext für das "Neue Aufgabe"-Formular
     if (context === 'edit') {
         return {
             assignmentState: modalState.editModal.assignedUsers,
@@ -608,7 +605,7 @@ export function closeEditModal() {
     modal.classList.add('hidden');
     modal.classList.remove('flex');
     // Modal-Zustand zurücksetzen
-    modalState.editModal = { assignedUsers: [], ownerId: null };
+    modalState.editModal = { assignedUsers: [], ownerId: null, priority: 3 };
     // UI Elemente leeren (nutzt generalisierte Funktion)
     const ctx = getCollaborationContext('edit');
     if (ctx) {
@@ -617,7 +614,7 @@ export function closeEditModal() {
     }
 }
 
-// Liest neue Felder (Typ, Besitzer, Uhrzeit) und rechnet Zeit um
+// Liest neue Felder (Typ, Besitzer, Uhrzeit, Priorität) und rechnet Zeit um
 export async function handleSaveEditedTask() {
     const taskId = document.getElementById('edit-task-id').value;
     // Lese den Typ aus dem <select> Element
@@ -637,13 +634,17 @@ export async function handleSaveEditedTask() {
     // Lese den (potenziell geänderten) Besitzer
     const ownerId = modalState.editModal.ownerId;
 
+    // NEU: Lese Priorität aus dem Modal State
+    const priority = modalState.editModal.priority;
+
     const updatedDetails = {
         description: description,
         type: type, // Übergebe den Typ
         assignedTo: assignedUids,
         ownerId: ownerId, // Übergebe den Besitzer
         notes: notes || null,
-        location: location || null
+        location: location || null,
+        priority: priority // NEU: Übergebe Priorität
     };
 
     try {
@@ -754,6 +755,17 @@ export function closeModal() {
 export function updateAndGetSettingsFromModal() {
     modalState.tempSettings.calcPriority = document.getElementById('calcPriorityCheckbox').checked;
 
+    // NEU: Lese die Einstellung für die Textlänge
+    const truncationLengthInput = document.getElementById('taskTruncationLengthInput');
+    if (truncationLengthInput) {
+        const value = parseInt(truncationLengthInput.value, 10);
+        // Validierung erfolgt primär in database.js, hier nur Prüfung auf gültige Zahl.
+        if (!isNaN(value)) {
+            modalState.tempSettings.taskTruncationLength = value;
+        }
+    }
+
+
     // Lese die Orte aus dem temporären Zustand. Die Bearbeitung des tempSettings-Objekts
     // passiert direkt in den Event-Listenern (handleLocationAction).
     // Hier muss nichts extra gelesen werden, da das Objekt bereits aktuell ist.
@@ -811,6 +823,10 @@ async function handleLocationClick(event) {
         event.preventDefault(); // Verhindert Form-Submission, falls vorhanden
         const input = document.getElementById('new-location-input');
         const newLocation = input.value.trim();
+        
+        // Sicherstellen, dass state.settings.locations existiert
+        if (!state.settings.locations) state.settings.locations = [];
+
         if (newLocation && !state.settings.locations.includes(newLocation)) {
             state.settings.locations.push(newLocation);
             state.settings.locations.sort();
@@ -829,7 +845,7 @@ async function handleLocationClick(event) {
         const locationToRemove = removeBtn.dataset.location;
         if (confirm(`Möchtest du den Ort "${locationToRemove}" wirklich löschen? Er wird von allen Aufgaben entfernt.`)) {
             // 1. Ort aus den Einstellungen entfernen
-            state.settings.locations = state.settings.locations.filter(loc => loc !== locationToRemove);
+            state.settings.locations = (state.settings.locations || []).filter(loc => loc !== locationToRemove);
 
             // 2. Ort aus allen Tasks entfernen und diese für den DB-Update sammeln
             const tasksToUpdate = [];
@@ -863,7 +879,7 @@ async function handleLocationInputChange(event) {
 
     if (newLocation) {
         // Prüfe, ob der neue Name bereits existiert
-        if (state.settings.locations.includes(newLocation)) {
+        if ((state.settings.locations || []).includes(newLocation)) {
             alert(`Der Ort "${newLocation}" existiert bereits. Bitte wähle einen anderen Namen.`);
             input.value = originalLocation;
             return;
@@ -928,6 +944,8 @@ function handleTimeslotAction(event) {
  */
 async function renameLocationInStateAndDb(oldName, newName) {
     // 1. Update der zentralen Ortsliste in den Einstellungen
+    if (!state.settings.locations) state.settings.locations = [];
+
     const locationIndex = state.settings.locations.indexOf(oldName);
     if (locationIndex > -1) {
         state.settings.locations[locationIndex] = newName;
@@ -972,13 +990,13 @@ export function setActiveTaskType(button) {
     }
 }
 
-// Setzt neue Felder zurück, inkl. Zuweisungen und Uhrzeit
+// Setzt neue Felder zurück, inkl. Zuweisungen, Uhrzeit und Priorität
 export function clearInputs() {
     document.getElementById('newTaskInput').value = '';
     document.getElementById('newNotesInput').value = ''; 
     document.getElementById('newLocationSelect').value = ''; // Dropdown zurücksetzen
 
-    // NEU: Zuweisungen zurücksetzen (Standardmäßig nur der aktuelle Benutzer)
+    // Zuweisungen zurücksetzen (Standardmäßig nur der aktuelle Benutzer)
     state.newTaskAssignment.length = 0; // Leert das Array
     if (state.userProfile) {
         state.newTaskAssignment.push(state.userProfile);
@@ -992,6 +1010,11 @@ export function clearInputs() {
         if (ctx.searchResults) ctx.searchResults.classList.add('hidden');
     }
 
+    // NEU: Priorität zurücksetzen auf 3
+    setPriority('new', 3);
+    // Selector neu rendern, damit die UI aktuell ist.
+    renderPrioritySelector('new', 3);
+
     // Setze Stunden auf 1, Minuten auf 0 (Standard)
     document.getElementById('estimated-duration-h').value = '1';
     document.getElementById('estimated-duration-m').value = '0';
@@ -1002,7 +1025,7 @@ export function clearInputs() {
     document.getElementById('deadline-duration-m').value = '0';
 
     document.getElementById('fixed-date').value = '';
-    document.getElementById('fixed-time').value = ''; // NEU: Reset Uhrzeit
+    document.getElementById('fixed-time').value = ''; // Reset Uhrzeit
     document.getElementById('fixed-duration-h').value = '1';
     document.getElementById('fixed-duration-m').value = '0';
     
