@@ -1,7 +1,6 @@
 // js/ui-render.js
 import { state } from './state.js';
 import { WEEKDAYS } from './config.js';
-// GEÄNDERT: Importiere formatDateLocalized
 import { formatHoursMinutes, formatDateToYYYYMMDD, normalizeDate, parseDateString, generateColorFromString, formatDateLocalized } from './utils.js';
 import { getScheduleItemDuration, getDailyAvailableHours, getOriginalTotalDuration } from './scheduler.js';
 import { attachTaskInteractions } from './ui-actions.js';
@@ -24,10 +23,12 @@ const elements = {
     futureAvailableTime: document.getElementById('futureAvailableTime'),
     dailyTimeslotsContainer: document.getElementById('dailyTimeslotsContainer'),
     calcPriorityCheckbox: document.getElementById('calcPriorityCheckbox'),
-    toggleDragDrop: document.getElementById('toggleDragDrop'),
+    // toggleDragDrop entfernt.
     // NEU: Datumsanzeige
     todayDateDisplay: document.getElementById('todayDateDisplay'),
     tomorrowDateDisplay: document.getElementById('tomorrowDateDisplay'),
+    // NEU: Input für Textlänge in Einstellungen
+    taskTruncationLengthInput: document.getElementById('taskTruncationLengthInput'),
 };
 // Elemente für die Filterleiste
 const filterElements = {
@@ -45,18 +46,16 @@ export async function renderApp() {
     await renderFilterBar(); // Filterleiste rendern
     populateLocationDropdowns(); // Dropdowns befüllen
     updateAvailableTimeDisplays();
-    updateDateDisplays(); // NEU: Aktualisiere die Datumsanzeigen
+    updateDateDisplays(); // Aktualisiere die Datumsanzeigen
 
-    // (Toggle State Update unverändert)
-    if (elements.toggleDragDrop) {
-        elements.toggleDragDrop.checked = !state.settings.autoPriority;
-    }
+    // (Toggle State Update für DragDrop entfernt)
+
     // Interaktionen müssen nach dem Rendern angehängt werden
     attachTaskInteractions();
 }
 
 /**
- * NEU: Aktualisiert die Datumsanzeigen neben "Heute" und "Morgen".
+ * Aktualisiert die Datumsanzeigen neben "Heute" und "Morgen".
  */
 function updateDateDisplays() {
     const today = new Date();
@@ -115,11 +114,10 @@ async function renderFilterBar() {
     }
     
 
-    // 3. Filter-Buttons für Orte erstellen (GEÄNDERT: Checkboxes statt Radio)
+    // 3. Filter-Buttons für Orte erstellen (Checkboxes)
     filterElements.locationFilters.innerHTML = '';
     if (allLocations.length > 0) {
         allLocations.forEach(location => {
-            // GEÄNDERT: Prüfe ob Location im Array ist (state.js wurde im vorherigen Schritt angepasst)
             const isChecked = state.filters.prioritizedLocations.includes(location);
             const toggleHtml = `
                 <label class="filter-checkbox-label">
@@ -151,7 +149,6 @@ async function renderFilterBar() {
     }
 
     // 5. Zustand des "Löschen"-Buttons und der Nachricht aktualisieren
-    // GEÄNDERT: Prüfe prioritizedLocations
     const isFilterActive = state.filters.prioritizedLocations.length > 0 || state.filters.prioritizedUserIds.length > 0;
     filterElements.clearFiltersBtn.disabled = !isFilterActive;
     if (isFilterActive) {
@@ -165,7 +162,6 @@ async function renderFilterBar() {
  * Prüft, ob ein Schedule-Item den aktiven Filtern entspricht.
  */
 function isItemPrioritized(item) {
-    // GEÄNDERT: Prüfe prioritizedLocations (Array)
     const { prioritizedLocations, prioritizedUserIds } = state.filters;
     const matchesLocation = prioritizedLocations.length > 0 && prioritizedLocations.includes(item.location);
     
@@ -282,8 +278,37 @@ async function renderCompletedTasks() {
 
 
 /**
+ * NEU: Hilfsfunktion zur Kürzung des Textes.
+ * Behandelt Aufgaben-Teile speziell.
+ */
+function truncateText(text, maxLength) {
+    if (!text) return { truncated: '', isTruncated: false, suffix: '' };
+    
+    // Behandle Aufgaben-Teile (z.B. "(Teil 1)") speziell, damit sie nicht abgeschnitten werden.
+    const partMatch = text.match(/\(Teil \d+\)$/);
+    let baseDescription = text;
+    let partSuffix = '';
+
+    if (partMatch) {
+        partSuffix = ' ' + partMatch[0];
+        // Entferne den Suffix vom Haupttext für die Längenberechnung
+        baseDescription = text.substring(0, text.length - partMatch[0].length).trim();
+    }
+
+    if (baseDescription.length <= maxLength) {
+        // Text ist kurz genug. Suffix wird später hinzugefügt, falls vorhanden.
+        return { truncated: baseDescription, isTruncated: false, suffix: partSuffix };
+    }
+    
+    // Kürzen und "..." hinzufügen
+    const truncated = baseDescription.substring(0, maxLength) + '...';
+    return { truncated: truncated, isTruncated: true, suffix: partSuffix };
+}
+
+
+/**
  * Erstellt das DOM Element für ein aktives Schedule Item.
- * GEÄNDERT: Zeigt Uhrzeit bei Fixen Terminen an.
+ * GEÄNDERT: Zeigt Uhrzeit, Prioritätspfeile und gekürzten Text an.
  */
 function createScheduleItemElement(item, assignedShortNames = []) {
     const itemElement = document.createElement('div');
@@ -302,15 +327,9 @@ function createScheduleItemElement(item, assignedShortNames = []) {
         classes += ' prioritized';
     }
 
-    // Draggable status & Cursor
-    const isDraggable = !state.settings.autoPriority;
-    itemElement.draggable = isDraggable;
-
-    if (isDraggable) {
-        classes += ' cursor-grab';
-    } else {
-        classes += ' cursor-default';
-    }
+    // Draggable status & Cursor entfernt.
+    itemElement.draggable = false;
+    classes += ' cursor-default';
 
     itemElement.className = classes;
     itemElement.dataset.taskId = item.taskId;
@@ -330,7 +349,6 @@ function createScheduleItemElement(item, assignedShortNames = []) {
     let notesContentHtml = '';
     if (item.notes) {
         // Button zum Ein-/Ausklappen (Standardmäßig eingeklappt)
-        // focus:outline-none hinzugefügt für bessere UX
         notesToggle = `<button class="toggle-notes-btn ml-3 cursor-pointer hover:text-gray-700 transition duration-150 focus:outline-none" title="Notizen anzeigen/verbergen">
                             <i class="fas fa-chevron-down text-gray-500"></i>
                        </button>`;
@@ -344,6 +362,55 @@ function createScheduleItemElement(item, assignedShortNames = []) {
         const userBadges = assignedShortNames.map(name => `<span class="user-shortname">${name}</span>`).join('');
         assignedUsersDisplay = `<div class="assigned-users-display">${userBadges}</div>`;
     }
+
+    // 4. NEU: Prioritäts-Pfeile
+    const priority = item.priority || 3;
+    const isPrioUpDisabled = priority >= 5;
+    const isPrioDownDisabled = priority <= 1;
+
+    // Pfeile nur für flexible Aufgaben anzeigen.
+    let priorityArrowsHtml = '';
+    if (item.type === 'Vorteil & Dauer') {
+        priorityArrowsHtml = `
+            <div class="priority-arrows">
+                <button data-task-id="${item.taskId}" data-direction="down" class="priority-arrow-btn ${isPrioDownDisabled ? 'disabled' : ''}" title="Priorität senken (Min 1)">
+                    <i class="fas fa-chevron-down"></i>
+                </button>
+                <span class="priority-display">${priority}</span>
+                <button data-task-id="${item.taskId}" data-direction="up" class="priority-arrow-btn ${isPrioUpDisabled ? 'disabled' : ''}" title="Priorität erhöhen (Max 5)">
+                    <i class="fas fa-chevron-up"></i>
+                </button>
+            </div>
+        `;
+    } else {
+        // Für Termine/Deadlines nur die Zahl anzeigen (zur Info)
+         priorityArrowsHtml = `
+            <div class="priority-arrows" title="Priorität (Fix durch Aufgabentyp)">
+                <span class="priority-display">${priority}</span>
+            </div>
+        `;
+    }
+
+
+    // 5. NEU: Gekürzte Beschreibung und Toggle
+    const truncationLength = state.settings.taskTruncationLength || 30;
+    const { truncated, isTruncated, suffix } = truncateText(item.description, truncationLength);
+    
+    let descriptionToggle = '';
+    // Gekürzter Text (Standardmäßig sichtbar) - Span wird später befüllt.
+    let descriptionContentHtml = `<span class="task-description-short"></span>`;
+    // Voller Text (Standardmäßig versteckt, nur wenn gekürzt)
+    let fullDescriptionHtml = '';
+
+    if (isTruncated) {
+        // Button zum Umschalten
+        descriptionToggle = `<button class="toggle-description-btn ml-3 cursor-pointer hover:text-gray-700 transition duration-150 focus:outline-none" title="Vollständigen Text anzeigen">
+                                <i class="fas fa-chevron-down text-gray-500"></i>
+                             </button>`;
+        // Der vollständige Text wird später sicher eingefügt. Suffix wird hier als Text hinzugefügt.
+        fullDescriptionHtml = `<div class="task-description-full hidden w-full">${suffix}</div>`;
+    }
+
 
     // --- Bestehende Elemente (angepasst) ---
 
@@ -370,44 +437,77 @@ function createScheduleItemElement(item, assignedShortNames = []) {
     tomorrow.setDate(tomorrow.getDate() + 1);
 
     if (itemPlannedDate && itemPlannedDate.getTime() > tomorrow.getTime()) {
-        // NEU: Nutze lokalisierte Formatierung für zukünftige Daten
+        // Nutze lokalisierte Formatierung für zukünftige Daten
         plannedDateDisplay = `<span class="ml-2 text-sm text-gray-400">(${formatDateLocalized(itemPlannedDate)})</span>`;
     }
 
-    // NEU: Uhrzeit für Fixe Termine
+    // Uhrzeit für Fixe Termine
     let timeDisplay = '';
     if (item.type === 'Fixer Termin' && item.fixedTime) {
         timeDisplay = `<span class="ml-2 text-sm text-blue-500 font-semibold">@ ${item.fixedTime}</span>`;
     }
 
-    // Manuell geplante Markierung (Pinnadel)
-    const manualScheduleFlag = item.isManuallyScheduled && !state.settings.autoPriority ? `<i class="fas fa-thumbtack text-blue-500 ml-2 text-sm" title="Manuell geplant (wird nicht automatisch verschoben)"></i>` : '';
+    // Manuell geplante Markierung (ENTFERNT)
 
 
     // Finales HTML Layout
-    // WICHTIG: Checkbox benötigt mt-0.5 für die vertikale Ausrichtung mit dem Text, da das task-item `items-start` (in CSS) verwendet.
+    // GEÄNDERT: Layout angepasst, um Beschreibungstoggle und Notizen unterzubringen.
+    // Das task-item verwendet `items-start` (in CSS). Checkbox benötigt mt-0.5 für vertikale Ausrichtung.
     itemElement.innerHTML = `
         ${locationMarker}
-        <div class="flex items-center flex-grow">
-            <input type="checkbox" data-task-id="${item.taskId}" class="task-checkbox form-checkbox h-5 w-5 text-green-600 rounded mr-3 cursor-pointer mt-0.5">
-            <span class="task-content text-gray-800 text-lg cursor-pointer hover:text-blue-600 transition duration-150">${item.description}</span>
-            ${timeDisplay}
-            ${notesToggle}
-            ${manualScheduleFlag}
-            ${durationDisplay}
-            ${benefitDisplay}
-            ${item.deadlineDate ? `<span class="ml-2 text-sm text-red-500">Deadline: ${formatDateLocalized(parseDateString(item.deadlineDate))}</span>` : ''}
-            ${plannedDateDisplay}
-            ${assignedUsersDisplay}
+        <div class="flex flex-col flex-grow w-full">
+            <div class="flex items-center w-full">
+                <input type="checkbox" data-task-id="${item.taskId}" class="task-checkbox form-checkbox h-5 w-5 text-green-600 rounded mr-3 cursor-pointer mt-0.5">
+                
+                <div class="task-content flex items-center text-lg cursor-pointer hover:text-blue-600 transition duration-150">
+                    ${descriptionContentHtml}
+                    ${descriptionToggle}
+                    ${timeDisplay}
+                    ${notesToggle}
+                </div>
+
+                ${priorityArrowsHtml}
+                ${durationDisplay}
+                ${benefitDisplay}
+                ${item.deadlineDate ? `<span class="ml-2 text-sm text-red-500">Deadline: ${formatDateLocalized(parseDateString(item.deadlineDate))}</span>` : ''}
+                ${plannedDateDisplay}
+                ${assignedUsersDisplay}
+            </div>
+
+            ${fullDescriptionHtml}
+            ${notesContentHtml}
         </div>
-        ${notesContentHtml}
     `;
 
-    // Sicherstellen, dass der Notizinhalt als Text eingefügt wird (verhindert XSS)
+    // Sicherstellen, dass Inhalte als Text eingefügt werden (verhindert XSS)
+    
+    // Gekürzten Text einfügen
+    const shortTextElement = itemElement.querySelector('.task-description-short');
+    if (shortTextElement) {
+        shortTextElement.textContent = truncated;
+        // Wenn nicht gekürzt, aber ein Suffix vorhanden ist (z.B. "(Teil 1)"), füge ihn hinzu.
+        if (suffix && !isTruncated) {
+            shortTextElement.textContent += suffix;
+        }
+    }
+
     if (item.notes) {
         const notesElement = itemElement.querySelector('.task-notes-content');
         if (notesElement) {
             notesElement.textContent = item.notes;
+        }
+    }
+
+    if (isTruncated) {
+        const fullTextElementBlock = itemElement.querySelector('.task-description-full');
+        // Wir fügen den Basis-Text (ohne Suffix) in das Block-Element ein.
+        const baseDescription = item.description.replace(suffix, '').trim();
+        
+        if (fullTextElementBlock) {
+            // Erstelle einen Span für den Text und füge ihn vor dem Suffix (der bereits im HTML steht) ein
+            const textSpan = document.createElement('span');
+            textSpan.textContent = baseDescription;
+            fullTextElementBlock.insertBefore(textSpan, fullTextElementBlock.firstChild);
         }
     }
 
@@ -416,7 +516,7 @@ function createScheduleItemElement(item, assignedShortNames = []) {
 
 /**
  * Erstellt das DOM Element für eine erledigte Aufgabe (Definition).
- * Zeigt Location und Assigned Users an.
+ * Zeigt Location, Assigned Users, Priorität (nur Zahl) und wendet Kürzung an.
  */
 function createCompletedTaskElement(task, assignedShortNames = []) {
     const taskElement = document.createElement('div');
@@ -439,15 +539,29 @@ function createCompletedTaskElement(task, assignedShortNames = []) {
         assignedUsersDisplay = `<div class="assigned-users-display">${userBadges}</div>`;
     }
 
+    // NEU: Priorität (nur Anzeige)
+    const priority = task.priority || 3;
+    const priorityDisplayHtml = `
+        <div class="priority-arrows">
+            <span class="priority-display" title="Priorität">${priority}</span>
+        </div>
+    `;
+
     // Dauer (nutzt neue Formatierung)
     const duration = getOriginalTotalDuration(task);
     const durationDisplay = duration > 0 ? `<span class="ml-4 text-sm text-gray-500">(${formatHoursMinutes(duration)})</span>` : '';
+
+    // Textkürzung auch hier anwenden (ohne Toggle, da erledigt)
+    const truncationLength = state.settings.taskTruncationLength || 30;
+    // Bei erledigten Aufgaben gibt es keine Teile mehr.
+    const { truncated } = truncateText(task.description, truncationLength);
 
     taskElement.innerHTML = `
         ${locationMarker}
         <div class="flex items-center flex-grow">
             <input type="checkbox" data-task-id="${task.id}" checked class="task-checkbox form-checkbox h-5 w-5 text-green-600 rounded mr-3 cursor-pointer">
-            <span class="task-content text-gray-800 text-lg">${task.description}</span>
+            <span class="task-content text-gray-800 text-lg">${truncated}</span>
+            ${priorityDisplayHtml}
             ${durationDisplay}
             ${assignedUsersDisplay}
         </div>
@@ -513,6 +627,12 @@ function updateAvailableTimeDisplays() {
 export function renderSettingsModal(settingsToRender) {
      if (!settingsToRender || !settingsToRender.dailyTimeSlots) return;
     elements.calcPriorityCheckbox.checked = settingsToRender.calcPriority;
+
+    // NEU: Befülle das Input-Feld für die Textlänge
+    if (elements.taskTruncationLengthInput) {
+        elements.taskTruncationLengthInput.value = settingsToRender.taskTruncationLength || 30;
+    }
+
     renderLocationsManagement(settingsToRender.locations || []);
     renderDailyTimeslots(settingsToRender);
 }
@@ -593,4 +713,31 @@ function createTimeslotElement(dayName, slotId, startTime, endTime) {
         </button>
     `;
     return timeslotDiv;
+}
+
+/**
+ * NEU: Rendert den Prioritäts-Selector (Radio Buttons) im jeweiligen Kontext.
+ */
+export function renderPrioritySelector(context, currentPriority) {
+    // context ist 'new' oder 'edit'
+    const selectorId = `${context}-priority-selector`;
+    const selector = document.getElementById(selectorId);
+    if (!selector) return;
+
+    selector.innerHTML = '';
+    // Name für die Radio-Gruppe (muss eindeutig sein)
+    const radioName = `${context}-priority-radio`;
+
+    // Erstellt die 5 Kästchen (1=Niedrig bis 5=Hoch)
+    for (let i = 1; i <= 5; i++) {
+        const isChecked = i === currentPriority;
+        // Nutzt das Label/Input Pattern für die gestylten Kästchen (siehe CSS in index.html)
+        const optionHtml = `
+            <label class="priority-option-label">
+                <input type="radio" name="${radioName}" value="${i}" ${isChecked ? 'checked' : ''}>
+                <span class="priority-toggle">${i}</span>
+            </label>
+        `;
+        selector.innerHTML += optionHtml;
+    }
 }
