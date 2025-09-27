@@ -1,9 +1,10 @@
 // js/main.js
 import { state } from './state.js';
+// GEÄNDERT: saveSettings importiert.
 import { initializeDataListeners, saveSettings, saveTaskDefinition } from './database.js';
-// GEÄNDERT: calculateExactTimes importieren
-import { recalculateSchedule, calculateExactTimes } from './scheduler.js';
+import { recalculateSchedule } from './scheduler.js';
 import { renderApp } from './ui-render.js';
+// GEÄNDERT: initializeUIComponents hinzugefügt (ersetzt initializeCollaborationUI).
 import {
     openModal, closeModal, setActiveTaskType, clearInputs, updateAndGetSettingsFromModal,
     closeEditModal, handleSaveEditedTask, handleDeleteTask, handleClearCompleted, attachFilterInteractions,
@@ -43,12 +44,13 @@ function onLoginSuccess() {
         state.newTaskAssignment.push(state.userProfile);
         // Rendere die UI, falls sie bereits initialisiert wurde
         if (isInitialized) {
+            // GEÄNDERT: Ruft die generalisierte Initialisierung auf
             initializeUIComponents();
         }
     }
 }
 
-// 3. Callback für Daten-Updates
+// 3. Callback für Daten-Updates (Unverändert)
 async function handleDataUpdate(type, data) {
     
     if (type === 'tasks') {
@@ -71,8 +73,6 @@ async function handleDataUpdate(type, data) {
     if (initialTasksLoaded && initialSettingsLoaded) {
         // Bei jedem Update: Neu berechnen und rendern
         recalculateSchedule();
-        // NEU: Berechne die exakten Zeiten basierend auf dem neuen Schedule
-        calculateExactTimes(state.schedule);
         await renderApp(); // Warten auf das Rendering (async)
         // Sicherstellen, dass die App angezeigt wird
         showAppScreen();
@@ -92,7 +92,7 @@ function initializeUI() {
     attachEventListeners();
     // Initialisiere Filter-Interaktionen
     attachFilterInteractions(); 
-    // Initialisiere die Komponenten
+    // GEÄNDERT: Initialisiere die Komponenten (ersetzt initializeCollaborationUI)
     initializeUIComponents();
     startDayChangeChecker();
 }
@@ -101,20 +101,18 @@ function initializeUI() {
 // --- Timer ---
 function startDayChangeChecker() {
     // async wegen renderApp
-    // Prüfintervall auf 5 Minuten verkürzt, um die verfügbare Zeit für "Heute" aktuell zu halten.
+    // GEÄNDERT: Prüfintervall auf 5 Minuten verkürzt, um die verfügbare Zeit für "Heute" aktuell zu halten.
     setInterval(async () => {
         const now = normalizeDate();
         if (now.getTime() !== currentDay.getTime()) {
             console.log("Tageswechsel erkannt. Aktualisiere Zeitplan und Ansicht.");
             currentDay = now;
             recalculateSchedule();
-            calculateExactTimes(state.schedule); // NEU
             await renderApp();
         } else {
-            // Auch innerhalb des Tages müssen wir regelmäßig neu berechnen, 
-            // da sich die verfügbare Zeit für "Heute" durch verstreichende Zeit ändert.
+            // NEU: Auch innerhalb des Tages müssen wir regelmäßig neu berechnen, 
+            // da sich die verfügbare Zeit für "Heute" durch verstreichende Zeit ändert (siehe scheduler.js).
             recalculateSchedule();
-            calculateExactTimes(state.schedule); // NEU
             // Ein periodisches Rendern stellt sicher, dass die "Verfügbare Zeit"-Anzeige aktuell ist.
             await renderApp();
         }
@@ -139,7 +137,10 @@ function attachEventListeners() {
     document.getElementById('saveTaskBtn').addEventListener('click', handleSaveEditedTask);
     document.getElementById('deleteTaskBtn').addEventListener('click', handleDeleteTask); 
 
+    // Klick außerhalb des Modals (Overlay-Klick) (ENTFERNT)
+
     // Global actions
+    // ENTFERNT: toggleDragDrop Listener
     document.getElementById('clearCompletedBtn').addEventListener('click', handleClearCompleted);
 
     // Task creation
@@ -161,6 +162,8 @@ function attachEventListeners() {
 
 // --- Handlers ---
 
+// handleToggleDragDrop entfernt.
+
 
 async function handleAddTask() {
     const description = document.getElementById('newTaskInput').value.trim();
@@ -181,7 +184,7 @@ async function handleAddTask() {
         assignedTo.push(state.user.uid);
     }
 
-    // Lese Priorität aus dem State
+    // NEU: Lese Priorität aus dem State (wird durch UI-Aktionen gesetzt)
     const priority = state.newTaskPriority;
 
     // Erstelle die Aufgabendefinition
@@ -189,10 +192,11 @@ async function handleAddTask() {
         description: description,
         type: state.activeTaskType,
         completed: false,
+        // isManuallyScheduled entfernt
         notes: notes || null,
         location: location || null,
         assignedTo: assignedTo,
-        priority: priority
+        priority: priority // NEU: Priorität hinzufügen
         // ownerId wird automatisch in database.js gesetzt
     };
 
@@ -208,10 +212,6 @@ async function handleAddTask() {
             const deadlineDate = document.getElementById('deadline-date').value;
             if (!deadlineDate) throw new Error("Bitte gib ein Deadline Datum ein!");
             taskDefinition.deadlineDate = deadlineDate;
-
-            // NEU: Lese die Deadline Uhrzeit (optional)
-            const deadlineTime = document.getElementById('deadline-time').value;
-            taskDefinition.deadlineTime = deadlineTime || null;
             
             const hours = document.getElementById('deadline-duration-h').value;
             const minutes = document.getElementById('deadline-duration-m').value;
@@ -247,6 +247,7 @@ async function handleAddTask() {
     }
 }
 
+// GEÄNDERT: Implementierung hinzugefügt (war vorher leer)
 async function handleSaveSettings() {
     const newSettings = updateAndGetSettingsFromModal();
     
