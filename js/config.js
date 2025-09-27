@@ -11,8 +11,9 @@ export function getDefaultSettings() {
     });
     return {
         calcPriority: true,
-        // autoPriority entfernt, da Manuell Sortieren nicht mehr existiert.
-        // NEU: Einstellung für die Textlänge (Standard 30 Zeichen)
+        // NEU: Optionale Anzeige der exakten Uhrzeiten (Standard: Aus)
+        showExactTimes: false,
+        // Einstellung für die Textlänge (Standard 30 Zeichen)
         taskTruncationLength: 30,
         dailyTimeSlots: defaultDailyTimeSlots,
         locations: [] // Sicherstellen, dass locations existiert
