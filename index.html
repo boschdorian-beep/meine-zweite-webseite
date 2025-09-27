@@ -46,10 +46,17 @@
             @apply bg-surface rounded-xl shadow-lg;
         }
 
-        /* --- Task Item Styles (Überarbeitet für Alignment) --- */
+        /* --- Task Item Styles (NEU: CSS Grid für Tabellen-Layout) --- */
         .task-item {
-            /* GEÄNDERT: Layout Basis. Nutzt Flexbox für die Anordnung der Spalten. */
-            @apply flex bg-white p-4 rounded-lg shadow-sm mb-3 relative overflow-hidden pl-6 border border-gray-100 transition-all duration-150;
+            /* GEÄNDERT: Nutzt CSS Grid für strikte Ausrichtung. */
+            @apply bg-white p-4 rounded-lg shadow-sm mb-3 relative overflow-hidden pl-6 border border-gray-100 transition-all duration-150;
+            display: grid;
+            /* Spalten: Checkbox(auto), Beschreibung(1fr, flexibel), 7x Metadaten (auto, basierend auf Inhalt) */
+            grid-template-columns: auto 1fr repeat(7, auto);
+            /* Reihen: Hauptzeile (auto), Expandierter Inhalt (auto) */
+            grid-template-rows: auto auto;
+            align-items: center; /* Zentriert den Inhalt vertikal in der Hauptzeile */
+            gap: 0.75rem; /* Abstand zwischen den Spalten */
         }
 
          /* Priorisierte Aufgaben (durch Filter) */
@@ -58,23 +65,13 @@
             @apply ring-2 ring-offset-2 ring-accent bg-violet-50;
         }
 
-        /* NEU: Container für den linken Teil (Checkbox und Inhalt) */
-        .task-left-col {
-             /* items-start sorgt dafür, dass der Inhalt oben beginnt. flex-grow nimmt den verfügbaren Platz ein. */
-             @apply flex items-start flex-grow flex-shrink mr-4;
-        }
-
-        /* NEU: Container für den rechten Teil (Metadaten) */
-        .task-right-col {
-            /* flex-shrink-0 verhindert, dass es zusammengedrückt wird. items-center sorgt für vertikale Zentrierung der Metadaten. */
-            @apply flex items-center flex-shrink-0 space-x-2;
-        }
+        /* ENTFERNT: task-left-col und task-right-col werden nicht mehr benötigt. */
 
 
         /* Styles für Prioritäts-Pfeile */
         .priority-arrows {
-            /* GEÄNDERT: Abstand wird durch space-x-2 im task-right-col geregelt. */
-            @apply flex items-center space-x-1 ml-2;
+            /* GEÄNDERT: ml-2 entfernt, da Abstand durch Grid Gap geregelt wird. */
+            @apply flex items-center space-x-1;
         }
         .priority-arrow-btn {
             /* Design mit grauem Hintergrundfeld wie gewünscht */
@@ -92,20 +89,30 @@
         .task-description-short {
              @apply text-lg text-gray-800;
         }
+
+        /* GEÄNDERT: task-content ist nun die Zelle für die Beschreibung */
+        .task-content {
+            /* Stellt sicher, dass der Klickbereich die Beschreibung und die Toggles umfasst */
+            @apply flex items-center text-lg cursor-pointer hover:text-blue-600 transition duration-150;
+        }
+
+        /* NEU: Container für expandierbaren Inhalt (Notizen, voller Text) */
+        .task-expanded-container {
+            /* Spannt sich über alle Spalten außer der Checkbox. Beginnt in der zweiten Reihe. */
+            grid-column: 2 / -1;
+            grid-row: 2;
+            @apply w-full;
+        }
+
         .task-description-full {
-            /* Angepasst, um unter dem Haupttext zu erscheinen, wenn ausgeklappt */
-            /* GEÄNDERT: ml-8 entfernt, da das Layout angepasst wurde (liegt nun im task-content) */
+            /* Styling für den vollen Text, wenn er im expanded-container liegt */
              @apply text-lg text-gray-800 mt-2 p-3 bg-gray-50 rounded-lg whitespace-pre-wrap w-full;
         }
-        
-        /* Anpassung für task-content (wird durch JS gesteuert) */
-        .task-content {
-            /* GEÄNDERT: Ist nun ein Flex-Column Container für Beschreibung und ausgeklappten Text/Notizen */
-            @apply flex flex-col items-start cursor-pointer hover:text-blue-600 transition duration-150 w-full;
-        }
-        /* NEU: Header innerhalb des Contents für die Hauptzeile (Beschreibung + Toggles) */
-        .task-content-header {
-             @apply flex items-center text-lg;
+
+        /* --- Notizen Styles --- */
+        .task-notes-content {
+            /* Styling für Notizen, wenn sie im expanded-container liegen */
+            @apply text-sm text-gray-600 mt-2 p-3 bg-gray-50 rounded-lg whitespace-pre-wrap w-full;
         }
 
 
@@ -116,12 +123,6 @@
         .task-item.completed {
             @apply line-through text-gray-500 bg-gray-50;
         }
-        /* Bei erledigten Aufgaben sollen die Spalten zentriert sein */
-        .task-item.completed .task-left-col,
-        .task-item.completed .task-right-col {
-             @apply items-center;
-        }
-
 
         .task-item.overdue {
             @apply border-2 border-red-400 bg-red-50;
@@ -161,15 +162,10 @@
             margin-bottom: 0;
         }
 
-        /* --- Notizen Styles --- */
-        .task-notes-content {
-            /* GEÄNDERT: ml-8 entfernt, da das Layout angepasst wurde (liegt nun im task-content) */
-            @apply text-sm text-gray-600 mt-2 p-3 bg-gray-50 rounded-lg whitespace-pre-wrap w-full;
-        }
 
         /* --- User Assignment Styles --- */
         .assigned-users-display {
-            /* GEÄNDERT: ml-4 entfernt, da Abstand durch task-right-col geregelt wird */
+            /* GEÄNDERT: ml-4 entfernt, da Abstand durch Grid Gap geregelt wird */
             @apply flex items-center space-x-1;
         }
         .user-shortname {
