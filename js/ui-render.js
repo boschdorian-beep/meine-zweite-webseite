@@ -453,45 +453,45 @@ function createScheduleItemElement(item, assignedShortNames = []) {
     // --- Finales HTML Layout (NEUE, KORRIGIERTE Spaltenstruktur) ---
     itemElement.innerHTML = `
         ${locationMarker}
-        <div class="flex flex-col flex-grow min-w-0"> 
-            <div class="flex items-start justify-between w-full">
-                <div class="flex items-center flex-grow min-w-0 mr-4">
-                    <input type="checkbox" data-task-id="${item.taskId}" class="task-checkbox form-checkbox h-5 w-5 text-green-600 rounded mr-3 cursor-pointer flex-shrink-0 mt-1">
-                    
-                    <div class="task-content text-lg cursor-pointer hover:text-blue-600 transition duration-150 min-w-0">
-                        <div class="flex items-center">
-                             <span class="task-description-short truncate"></span>
-                             ${descriptionToggle}
-                             ${timeDisplay}
-                             ${notesToggle}
-                        </div>
-                    </div>
-                </div>
-
-                <div class="flex items-center space-x-4 flex-shrink-0 mt-1">
-                    
-                    <div class="w-20 text-center" title="Zugewiesen an">
-                        ${assignedUsersDisplay}
-                    </div>
-
-                    <div class="w-24 text-right text-sm text-gray-500" title="Dauer">
-                        ${durationDisplay}
-                        ${benefitDisplay}
-                    </div>
-
-                    <div class="w-24 flex justify-center">${priorityArrowsHtml}</div>
-
-                    <div class="w-32 text-right text-sm">
-                        ${item.deadlineDate ? `<span class="text-red-500 font-semibold">Deadline: ${formatDateLocalized(parseDateString(item.deadlineDate))}</span>` : ''}
-                        ${plannedDateDisplay}
+        <div class="flex items-start w-full">
+            <div class="flex items-center flex-grow min-w-0 mr-4">
+                <input type="checkbox" data-task-id="${item.taskId}" class="task-checkbox form-checkbox h-5 w-5 text-green-600 rounded mr-3 cursor-pointer flex-shrink-0 mt-1">
+                
+                <div class="task-content text-lg cursor-pointer hover:text-blue-600 transition duration-150 min-w-0">
+                    <div class="flex items-center">
+                         <span class="task-description-short truncate"></span>
+                         
+                         ${descriptionToggle}
+                         ${timeDisplay}
+                         ${notesToggle}
                     </div>
                 </div>
             </div>
 
-            <!-- Ausklappbare Inhalte (Notizen, voller Text) -->
-            ${fullDescriptionHtml}
-            ${notesContentHtml}
+            <div class="flex items-center space-x-4 flex-shrink-0 mt-1">
+                
+                <div class="w-20 text-center" title="Zugewiesen an">
+                    ${assignedUsersDisplay}
+                </div>
+
+                <div class="w-24 text-right text-sm text-gray-500" title="Dauer">
+                    ${durationDisplay}
+                    ${benefitDisplay}
+                </div>
+
+                <div class="w-24 flex justify-center">
+                    ${priorityArrowsHtml}
+                </div>
+
+                <div class="w-32 text-right text-sm">
+                    ${item.deadlineDate ? `<span class="text-red-500 font-semibold">Deadline: ${formatDateLocalized(parseDateString(item.deadlineDate))}</span>` : ''}
+                    ${plannedDateDisplay}
+                </div>
+            </div>
         </div>
+
+        ${fullDescriptionHtml}
+        ${notesContentHtml}
     `;
 
     // Sicherstellen, dass Inhalte als Text eingefügt werden (verhindert XSS)
