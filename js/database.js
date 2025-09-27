@@ -32,7 +32,7 @@ export function initializeDataListeners(onUpdateCallback) {
             const data = doc.data();
             data.id = doc.id;
 
-            // NEU: Migration / Sicherstellen der Datenintegrität
+            // Migration / Sicherstellen der Datenintegrität
             // Priorität sicherstellen (Standard 3, Range 1-5)
             if (typeof data.priority !== 'number' || data.priority < 1 || data.priority > 5) {
                 data.priority = 3;
@@ -104,7 +104,7 @@ export async function saveTaskDefinition(taskDefinition) {
         dataToSave.assignedTo = [dataToSave.ownerId];
     }
 
-    // NEU: Priorität sicherstellen
+    // Priorität sicherstellen
     if (typeof dataToSave.priority !== 'number' || dataToSave.priority < 1 || dataToSave.priority > 5) {
         dataToSave.priority = 3;
     }
@@ -174,10 +174,13 @@ function validateSettings(settings) {
     const defaults = getDefaultSettings();
     if (typeof settings.calcPriority !== 'boolean') settings.calcPriority = defaults.calcPriority;
     
+    // NEU: Validierung für die exakte Zeitanzeige
+    if (typeof settings.showExactTimes !== 'boolean') settings.showExactTimes = defaults.showExactTimes;
+
     // autoPriority entfernt (Cleanup).
     delete settings.autoPriority;
 
-    // NEU: Validierung der Textlänge (Min 5, Max 200)
+    // Validierung der Textlänge (Min 5, Max 200)
     const truncationLength = parseInt(settings.taskTruncationLength, 10);
     if (isNaN(truncationLength) || truncationLength < 5) {
         settings.taskTruncationLength = defaults.taskTruncationLength;
